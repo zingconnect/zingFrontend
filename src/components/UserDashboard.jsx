@@ -41,6 +41,18 @@ if (typeof window !== 'undefined') {
   }
 }
 
+const MessageBubble = ({ m, isMe, onReply, children }) => {
+  const controls = useAnimation();
+
+  const bind = useDrag(({ active, movement: [x] }) => {
+    const xMovement = Math.min(Math.max(0, x), 80); 
+    if (active) controls.set({ x: xMovement });
+    else {
+      if (xMovement > 55) onReply(m);
+      controls.start({ x: 0, transition: { type: "spring", stiffness: 350, damping: 25 } });
+    }
+  }, { axis: 'x', filterTaps: true, pointer: { touch: true } });
+
 const MessageList = React.memo(({ messages, userData, setReplyingTo, setFullscreenImage, setFullscreenVideo, handleDownload }) => {
   return (
     <>
@@ -898,17 +910,7 @@ function AudioTracks({ active }) {
   return null; // This component doesn't need to render anything visual
 };
 
-const MessageBubble = ({ m, isMe, onReply, children }) => {
-  const controls = useAnimation();
 
-  const bind = useDrag(({ active, movement: [x] }) => {
-    const xMovement = Math.min(Math.max(0, x), 80); 
-    if (active) controls.set({ x: xMovement });
-    else {
-      if (xMovement > 55) onReply(m);
-      controls.start({ x: 0, transition: { type: "spring", stiffness: 350, damping: 25 } });
-    }
-  }, { axis: 'x', filterTaps: true, pointer: { touch: true } });
 
   return (
     <div className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'} relative px-1 mb-1.5`}>
