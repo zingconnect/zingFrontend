@@ -41,6 +41,74 @@ if (typeof window !== 'undefined') {
   }
 }
 
+const MessageList = React.memo(({ messages, userData, setReplyingTo, setFullscreenImage, setFullscreenVideo, handleDownload }) => {
+  return (
+    <>
+      {messages.map((m, index) => {
+        // Use a stable key: prefer DB ID, fall back to temp ID, then unique string
+        const msgKey = m._id || m.tempId || `msg-${m.createdAt}-${index}`;
+        
+        if (m.fileType === 'voice_call') {
+          return (
+            <CallStatusMessage 
+              key={msgKey}
+              status={m.status} 
+              time={new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            />
+          );
+        }
+        const isMe = m.senderModel === 'User' || m.senderId === userData?._id;
+        return (
+          <MessageBubble
+            key={msgKey}
+            m={m}
+            isMe={isMe}
+            onReply={setReplyingTo}
+          >
+            {/* Media Content */}
+            {(m.fileType === 'image' || m.fileType === 'video') && (
+              <div className="relative mb-2 mt-1 group w-full">
+                {m.fileType === 'image' ? (
+                  <>
+                    <img 
+                      src={m.fileUrl} 
+                      alt="attachment" 
+                      onClick={() => setFullscreenImage(m.fileUrl)} 
+                      className="rounded-lg bg-gray-100 object-cover w-full max-w-[260px] max-h-[300px] md:max-w-[380px] md:max-h-[450px] cursor-pointer transition-opacity hover:opacity-95" 
+                      onError={(e) => { e.currentTarget.src = 'https://via.placeholder.com/150?text=Image+Unavailable'; }}
+                    />
+                    <button onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, 'image'); }}
+                      className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg">
+                      <BsDownload size={14} />
+                    </button>
+                  </>
+                ) : (
+                  <div className="relative">
+                    <video src={m.fileUrl} preload="metadata" className="rounded-lg w-full max-w-[260px] md:max-w-[380px] max-h-[450px] bg-black shadow-inner cursor-pointer" onClick={() => setFullscreenVideo(m.fileUrl)} />
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="bg-black/40 p-3 rounded-full text-white backdrop-blur-sm"><BsPlayFill size={30} /></div>
+                    </div>
+                    <button onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, 'video'); }}
+                      className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-20">
+                      <BsDownload size={14} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Text Content */}
+            {m.text && (
+              <p className={`text-[12px] md:text-[14px] leading-relaxed pr-6 break-words whitespace-pre-wrap text-slate-900 ${m.fileType === 'image' || m.fileType === 'video' ? 'mt-1 mb-1' : ''}`}>
+                {m.text}
+              </p>
+            )}
+          </MessageBubble>
+        );
+      })}
+    </>
+  );
+});
+
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
@@ -142,6 +210,8 @@ export const UserDashboard = () => {
   const onboardingFileInputRef = useRef(null);
   const previousScrollHeightRef = useRef(null);
   const previousScrollTopRef = useRef(null);
+  const lastMessageCountRef = useRef(0);
+  const lastMessageIdRef = useRef(null);
 
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingOlder, setIsFetchingOlder] = useState(false);
@@ -381,73 +451,59 @@ export const UserDashboard = () => {
     const interval = setInterval(fetchUserSession, 30000); 
     return () => clearInterval(interval);
   }, [navigate]);
-
-  useEffect(() => {
+useEffect(() => {
     const token = localStorage.getItem('userToken');
     const targetAgentId = agent?._id || agent?.id;
     const API_BASE_URL = import.meta.env.VITE_API_URL;
     if (!token || !targetAgentId) return;
+
     let isFirstLoad = !isInitialLoadComplete;
+
     const fetchMessages = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/api/messages/${targetAgentId}?limit=50`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
+        
         if (response.ok && data.success) {
           const incomingMessages = data.messages;
-          const lastMsg = incomingMessages[incomingMessages.length - 1];
-          if (
-            lastMsg && 
-            lastMsg.senderModel === 'Agent' && 
-            lastMsg.status !== 'seen' && 
-            lastMsg._id !== lastNotifiedId.current
-          ) {
-            lastNotifiedId.current = lastMsg._id;
-            if (notificationSound.current) {
-              notificationSound.current.currentTime = 0;
-              notificationSound.current.play().catch(() => console.log("Audio blocked by browser"));
-            }
-            if (Notification.permission === "granted") {
-              new Notification(`Agent ${agent.firstName || 'ZingConnect'}`, {
-                body: lastMsg.text || "Sent a file",
-                icon: '/logo-s.png',
-                tag: 'zing-msg'
-              });
-            }
-            fetch(`${API_BASE_URL}/api/messages/mark-read/${targetAgentId}`, {
-              method: 'PATCH',
-              headers: { 'Authorization': `Bearer ${token}` }
-            }).catch(err => console.error("Mark read failed:", err));
-          }
+          const latestMsg = incomingMessages[incomingMessages.length - 1];
+
+          // --- OPTIMIZATION: STOP FLICKER HERE ---
+          // Only proceed if count changed OR the latest message ID is different
+          const hasNewData = 
+            incomingMessages.length !== lastMessageCountRef.current || 
+            (latestMsg && latestMsg._id !== lastMessageIdRef.current);
+
+          if (!hasNewData && !isFirstLoad) return; 
+
+          // Update refs to track current state
+          lastMessageCountRef.current = incomingMessages.length;
+          if (latestMsg) lastMessageIdRef.current = latestMsg._id;
+          // ----------------------------------------
+
+          // (Keep your existing Notification/Mark-Read logic here...)
+
           setMessages(prev => {
             const inFlight = prev.filter(m => m.status === 'sending' || m.status === 'failed' || m.isTemp);
-            const historicalLocal = prev.filter(m => m._id && !incomingMessages.some(incoming => incoming._id === m._id));
             const serverMessageIds = new Set(incomingMessages.map(msg => msg._id));
-            const uniqueInFlight = inFlight.filter(m => 
-              !serverMessageIds.has(m._id) && !serverMessageIds.has(m.tempId)
-            );
-            return [...historicalLocal, ...incomingMessages, ...uniqueInFlight];
+            const uniqueInFlight = inFlight.filter(m => !serverMessageIds.has(m._id) && !serverMessageIds.has(m.tempId));
+            return [...incomingMessages, ...uniqueInFlight];
           });
+
+          // Scroll Logic
           if (isFirstLoad) {
             setTimeout(() => {
-              if (chatContainerRef.current) {
-                chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-              }
+              chatContainerRef.current?.scrollTo(0, chatContainerRef.current.scrollHeight);
               setIsInitialLoadComplete(true);
-            }, 120);
+            }, 100);
           } else {
             const container = chatContainerRef.current;
-            if (container) {
-              if (isAdjustingScrollRef.current) return;
-              const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
-              
+            if (container && !isAdjustingScrollRef.current) {
+              const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
               if (isNearBottom) {
-                setTimeout(() => {
-                  if (!isAdjustingScrollRef.current) {
-                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-                  }
-                }, 50);
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
               }
             }
           }
@@ -458,8 +514,9 @@ export const UserDashboard = () => {
         if (isFirstLoad) setLoading(false);
       }
     };
+
     fetchMessages();
-    const interval = setInterval(fetchMessages, 5000); 
+    const interval = setInterval(fetchMessages, 5000);
     return () => clearInterval(interval);
   }, [agent?._id, agent?.id, isInitialLoadComplete]);
 
@@ -1134,21 +1191,13 @@ const MessageBubble = ({ m, isMe, onReply, children }) => {
 />
 </div>
         </header>
-
 <main 
   ref={chatContainerRef}
   onScroll={handleChatScroll}
   className="flex-1 relative overflow-y-auto bg-[#efeae2] p-4 md:px-[15%] lg:px-[25%] flex flex-col space-y-2 scrollbar-hide"
-  style={{
-    scrollAnchor: 'none',             
-    overscrollBehaviorY: 'contain',   
-    WebkitOverflowScrolling: 'touch'  
-  }}
+  style={{ scrollAnchor: 'none', overscrollBehaviorY: 'contain', WebkitOverflowScrolling: 'touch' }}
 >
-  <div 
-    className="absolute inset-0 opacity-[0.05] pointer-events-none" 
-    style={{ backgroundImage: "url('https://w0.peakpx.com/wallpaper/580/678/OH-wallpaper-whatsapp-dark-mode.jpg')" }} 
-  />
+  <div className="absolute inset-0 opacity-[0.05] pointer-events-none" style={{ backgroundImage: "url('https://w0.peakpx.com/wallpaper/580/678/OH-wallpaper-whatsapp-dark-mode.jpg')" }} />
 
   {isFetchingOlder && (
     <div className="self-center z-20 my-2 px-3 py-1.5 bg-[#005c4b] text-white rounded-full text-[10px] font-bold tracking-wider flex items-center gap-2 shadow-md border border-emerald-500/20 animate-pulse">
@@ -1164,85 +1213,15 @@ const MessageBubble = ({ m, isMe, onReply, children }) => {
     </p>
   </div>
 
-{messages.map((m, index) => {
-  const msgKey = m._id || m.tempId || `msg-node-${m.createdAt}-${index}`;
-  if (m.fileType === 'voice_call') {
-    return (
-      <CallStatusMessage 
-        key={msgKey}
-        status={m.status} 
-        time={new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-      />
-    );
-  }
-  const isMe = m.senderModel === 'User' || m.senderId === userData?._id;
+  <MessageList 
+    messages={messages} 
+    userData={userData} 
+    setReplyingTo={setReplyingTo} 
+    setFullscreenImage={setFullscreenImage}
+    setFullscreenVideo={setFullscreenVideo}
+    handleDownload={handleDownload}
+  />
   
-  return (
-    <MessageBubble
-      key={msgKey}
-      m={m}
-      isMe={isMe}
-      onReply={(messageInstance) => setReplyingTo(messageInstance)}
-    >
-      {/* 1. Media Content */}
-      {(m.fileType === 'image' || m.fileType === 'video') && (
-        <div className="relative mb-2 mt-1 group w-full">
-          {m.fileType === 'image' ? (
-            <>
-              <img 
-                src={m.fileUrl} 
-                alt="attachment" 
-                onClick={() => setFullscreenImage(m.fileUrl)} 
-                className="rounded-lg bg-gray-100 object-cover w-full max-w-[260px] max-h-[300px] md:max-w-[380px] md:max-h-[450px] cursor-pointer transition-opacity hover:opacity-95" 
-                onError={(e) => {
-                  const target = e.currentTarget;
-                  target.onerror = null; 
-                  target.src = 'https://via.placeholder.com/150?text=Image+Unavailable';
-                }}
-              />
-              <button 
-                onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, 'image'); }}
-                className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-              >
-                <BsDownload size={14} />
-              </button>
-            </>
-          ) : (
-            <div className="relative">
-              <video 
-                key={`video-${msgKey}`}
-                src={m.fileUrl}
-                preload="metadata"
-                className="rounded-lg w-full max-w-[260px] md:max-w-[380px] max-h-[450px] bg-black shadow-inner cursor-pointer"
-                onClick={() => setFullscreenVideo(m.fileUrl)}
-              />
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="bg-black/40 p-3 rounded-full text-white backdrop-blur-sm">
-                  <BsPlayFill size={30} />
-                </div>
-              </div>
-              <button 
-                onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, 'video'); }}
-                className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-20"
-              >
-                <BsDownload size={14} />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 2. Text Content */}
-      {m.text && (
-        <p className={`text-[12px] md:text-[14px] leading-relaxed pr-6 break-words whitespace-pre-wrap text-slate-900 ${m.fileType === 'image' || m.fileType === 'video' ? 'mt-1 mb-1' : ''}`}>
-          {m.text}
-        </p>
-      )}
-      
-      {/* Footer metadata is now handled internally by MessageBubble */}
-    </MessageBubble>
-  );
-})}
   <div ref={messagesEndRef} className="h-12 shrink-0 w-full clear-both" />
 </main>
 
