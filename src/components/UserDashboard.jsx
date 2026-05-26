@@ -43,7 +43,6 @@ if (typeof window !== 'undefined') {
 
 const MessageBubble = ({ m, isMe, onReply, children }) => {
   const controls = useAnimation();
-
   const bind = useDrag(({ active, movement: [x] }) => {
     const xMovement = Math.min(Math.max(0, x), 80); 
     if (active) controls.set({ x: xMovement });
@@ -52,6 +51,15 @@ const MessageBubble = ({ m, isMe, onReply, children }) => {
       controls.start({ x: 0, transition: { type: "spring", stiffness: 350, damping: 25 } });
     }
   }, { axis: 'x', filterTaps: true, pointer: { touch: true } });
+
+  return (
+    <motion.div {...bind()} animate={controls} className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
+      <div className={`relative max-w-[85%] px-3 py-2 rounded-lg shadow-sm ${isMe ? 'bg-[#d9fdd3]' : 'bg-white'}`}>
+        {children}
+      </div>
+    </motion.div>
+  );
+};
 
 const MessageList = React.memo(({ messages, userData, setReplyingTo, setFullscreenImage, setFullscreenVideo, handleDownload }) => {
   return (
@@ -1617,6 +1625,5 @@ function AudioTracks({ active }) {
 
     </div>
   );
-};
 
 export default UserDashboard;
