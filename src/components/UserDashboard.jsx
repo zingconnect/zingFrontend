@@ -81,12 +81,15 @@ function AudioStateController({ isMuted, isMasked }) {
 
 const socket = io(import.meta.env.VITE_API_URL, {
   path: "/api/socket.io",
-  transports: ["polling", "websocket"], // Match the backend order
-  withCredentials: true, // Must be true because backend is true
+  transports: ["polling", "websocket"],
+  withCredentials: true,
+  autoConnect: true,
   extraHeaders: {
-    "Authorization": `Bearer ${localStorage.getItem('userToken') || ''}` // Include if you have auth
+    "Authorization": `Bearer ${localStorage.getItem('userToken') || ''}`,
+    "Cache-Control": "no-cache" 
   }
 });
+
 const PhoneInput = ReactPhoneInput.default || ReactPhoneInput;
 
 const CallStatusMessage = ({ status, time }) => {
