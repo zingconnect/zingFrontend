@@ -196,7 +196,7 @@ React.useEffect(() => {
       if (!guestId) return;
 
       try {
-        const response = await fetch(`https://zingconnect.vercel.app/api/support/history/${guestId}`);
+        const response = await fetch(`https://zingconnectbackend.onrender.com/api/support/history/${guestId}`);
         const data = await response.json();
 
         if (data.success && data.messages && data.messages.length > 0) {
@@ -238,7 +238,7 @@ React.useEffect(() => {
     socket.emit('guest_to_admin_message', { guestId, text: textToSend });
   }
   try {
-    await fetch('https://zingconnect.vercel.app/api/support/send', {
+    await fetch('https://zingconnectbackend.onrender.com/api/support/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ guestId, text: textToSend })

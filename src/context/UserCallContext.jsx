@@ -6,12 +6,15 @@ import { LiveKitRoom, RoomAudioRenderer, useLocalParticipant, useRoomContext } f
 export const UserCallContext = createContext(null);
 
 const socket = io(import.meta.env.VITE_API_URL, {
-  path: "/api/socket.io", // MANDATORY: Must match your backend
-  transports: ["websocket", "polling"],
+  path: "/api/socket.io",
+  transports: ["polling", "websocket"], // Polling first is safer for initial handshake
   withCredentials: true,
   autoConnect: true,
   reconnectionAttempts: 5,
-  reconnectionDelay: 2000
+  reconnectionDelay: 2000,
+  extraHeaders: {
+    "Authorization": `Bearer ${localStorage.getItem('userToken') || localStorage.getItem('userToken') || ''}`
+  }
 });
 
 export const UserCallProvider = ({ children }) => {

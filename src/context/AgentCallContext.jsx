@@ -15,9 +15,12 @@ export const useAgentCall = () => {
   return context;
 };
 const socket = io(import.meta.env.VITE_API_URL, {
-  path: "/api/socket.io", 
-  transports: ["websocket", "polling"],
-  withCredentials: true
+  path: "/api/socket.io",
+  transports: ["polling", "websocket"], // Match the backend order
+  withCredentials: true, // Must be true because backend is true
+  extraHeaders: {
+    "Authorization": `Bearer ${localStorage.getItem('agentToken') || ''}` // Include if you have auth
+  }
 });
 export const AgentCallProvider = ({ children }) => {
   // --- CORE SIGNALING STATE ENGINE ---

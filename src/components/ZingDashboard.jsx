@@ -63,18 +63,25 @@ const toggleEmailSelection = (email) => {
     prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]
   );
 };
-// --- USE THE CORRECT, STANDARDIZED INITIALIZATION ---
 useEffect(() => {
-  const newSocket = io(import.meta.env.VITE_API_URL, {
-    path: "/api/socket.io", // Must match your Backend
-    transports: ["websocket", "polling"],
-    withCredentials: true
+  const socketInstance = io(import.meta.env.VITE_API_URL, {
+    path: "/api/socket.io",
+    transports: ["polling", "websocket"],
+    withCredentials: true,
+    extraHeaders: {
+      "Authorization": `Bearer ${localStorage.getItem('userToken') || localStorage.getItem('adminToken') || ''}`
+    }
   });
-  
-  setSocket(newSocket);
 
-  return () => newSocket.close();
-}, []);
+  // Listener setup
+  socketInstance.on("connect", () => console.log("Socket connected:", socketInstance.id));
+
+  // The Cleanup Function
+  return () => {
+    socketInstance.disconnect(); // Closes the connection cleanly
+    socketInstance.removeAllListeners(); // Prevents memory leaks
+  };
+}, []); // Empty dependency array ensures it runs once on mount
 
 useEffect(() => {
   const fetchStats = async () => {
