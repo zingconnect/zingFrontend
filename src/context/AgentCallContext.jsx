@@ -14,10 +14,11 @@ export const useAgentCall = () => {
   if (!context) throw new Error('useAgentCall must be used within an AgentCallProvider');
   return context;
 };
-
-// Global Connection Signaling Socket Singleton
-const socket = io(import.meta.env.VITE_API_URL);
-
+const socket = io(import.meta.env.VITE_API_URL, {
+  path: "/api/socket.io", // Matches the path you defined in index.js
+  transports: ["websocket", "polling"],
+  withCredentials: true
+});
 export const AgentCallProvider = ({ children }) => {
   // --- CORE SIGNALING STATE ENGINE ---
   const [callStatus, setCallStatus] = useState('idle'); // idle, dialing, ringing, connected, connecting

@@ -6,6 +6,9 @@ import { LiveKitRoom, RoomAudioRenderer, useLocalParticipant, useRoomContext } f
 export const UserCallContext = createContext(null);
 
 const socket = io(import.meta.env.VITE_API_URL, {
+  path: "/api/socket.io", // MANDATORY: Must match your backend
+  transports: ["websocket", "polling"],
+  withCredentials: true,
   autoConnect: true,
   reconnectionAttempts: 5,
   reconnectionDelay: 2000

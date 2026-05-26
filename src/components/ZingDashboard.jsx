@@ -63,9 +63,14 @@ const toggleEmailSelection = (email) => {
     prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]
   );
 };
-// --- ADD THIS TO ZINGDASHBOARD ---
+// --- USE THE CORRECT, STANDARDIZED INITIALIZATION ---
 useEffect(() => {
-  const newSocket = io("https://zingconnect.vercel.app"); // Your backend URL
+  const newSocket = io(import.meta.env.VITE_API_URL, {
+    path: "/api/socket.io", // Must match your Backend
+    transports: ["websocket", "polling"],
+    withCredentials: true
+  });
+  
   setSocket(newSocket);
 
   return () => newSocket.close();
@@ -80,7 +85,7 @@ useEffect(() => {
     }
 
     try {
-      const response = await fetch('https://zingconnect.vercel.app/api/admin/stats', {
+      const response = await fetch('https://zingconnectbackend.onrender.com/api/admin/stats', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
@@ -124,7 +129,7 @@ useEffect(() => {
     const fetchActiveGuests = async () => {
       const token = localStorage.getItem('adminToken');
       try {
-        const response = await fetch('https://zingconnect.vercel.app/api/admin/support/guests', {
+        const response = await fetch('https://zingconnectbackend.onrender.com/api/admin/support/guests', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
@@ -259,7 +264,7 @@ const handleSendBroadcast = async () => {
   };
 
   try {
-    const response = await fetch('https://zingconnect.vercel.app/api/admin/broadcast-news', {
+    const response = await fetch('https://zingconnectbackend.onrender.com/api/admin/broadcast-news', {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${token}`,
@@ -293,7 +298,7 @@ const handleViewAgent = async (agentId) => {
     setLoading(true);
     const token = localStorage.getItem('adminToken');
     try {
-      const response = await fetch(`https://zingconnect.vercel.app/api/admin/agents/${agentId}`, {
+      const response = await fetch(`https://zingconnectbackend.onrender.com/api/admin/agents/${agentId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
@@ -309,7 +314,7 @@ const handleViewAgent = async (agentId) => {
 
 const handleToggleVerification = async (agentId) => {
   try {
-    const response = await fetch(`https://zingconnect.vercel.app/api/admin/agents/${agentId}/verify`, {
+    const response = await fetch(`https://zingconnectbackend.onrender.com/api/admin/agents/${agentId}/verify`, {
       method: 'PATCH', 
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
@@ -523,7 +528,7 @@ const handleToggleVerification = async (agentId) => {
     setActiveChat(user);
     const token = localStorage.getItem('adminToken');
     try {
-      const response = await fetch(`https://zingconnect.vercel.app/api/admin/support/messages/${chatIdentifier}`, {
+      const response = await fetch(`https://zingconnectbackend.onrender.com/api/admin/support/messages/${chatIdentifier}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();      
