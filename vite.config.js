@@ -16,7 +16,6 @@ export default defineConfig({
     }),
   ],
   build: {
-    // Increase limit slightly to avoid warnings for large bundles
     chunkSizeWarningLimit: 1000, 
     rollupOptions: {
       // If you are absolutely certain you have removed all imports of 
