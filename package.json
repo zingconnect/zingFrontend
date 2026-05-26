@@ -2,14 +2,12 @@
   "name": "zingconnect-frontend",
   "version": "1.0.0",
   "description": "",
-  "main": "vite.config.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "axios": "^1.16.1",
     "react": "^19.2.6",
@@ -19,6 +17,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.2",
+    "@tailwindcss/vite": "^4.0.0", 
     "vite": "^8.0.14",
     "vite-plugin-node-polyfills": "^0.28.0"
   }
