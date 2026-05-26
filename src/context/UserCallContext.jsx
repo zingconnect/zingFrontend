@@ -96,7 +96,6 @@ export const UserCallProvider = ({ children }) => {
         </LiveKitRoom>
       )}
 
-      {/* 4. GLOBAL INCOMING CALL HUD OVERLAY */}
       {callEngine.callStatus === 'ringing' && callEngine.isIncomingCall && (
         <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex flex-col items-center justify-center text-white animate-in fade-in duration-200">
           <div className="text-center space-y-5 max-w-sm px-6 w-full">
