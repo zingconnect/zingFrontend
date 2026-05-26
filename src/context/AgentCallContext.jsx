@@ -15,13 +15,13 @@ export const useAgentCall = () => {
   return context;
 };
 const socket = io(import.meta.env.VITE_API_URL, {
-  path: "/api/socket.io", // Matches the path you defined in index.js
+  path: "/api/socket.io", 
   transports: ["websocket", "polling"],
   withCredentials: true
 });
 export const AgentCallProvider = ({ children }) => {
   // --- CORE SIGNALING STATE ENGINE ---
-  const [callStatus, setCallStatus] = useState('idle'); // idle, dialing, ringing, connected, connecting
+  const [callStatus, setCallStatus] = useState('idle'); 
   const [isIncomingCall, setIsIncomingCall] = useState(false);
   const [activeCaller, setActiveCaller] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);

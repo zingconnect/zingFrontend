@@ -2,12 +2,12 @@
   "version": 2,
   "outputDirectory": "dist",
   "rewrites": [
-    {
-      "source": "/api/socket.io/(.*)",
-      "destination": "https://zingconnectbackend.onrender.com/api/socket.io/$1"
+    { 
+      "source": "/api/(.*)", 
+      "destination": "https://zingconnectbackend.onrender.com/api/$1" 
     },
     { 
-      "source": "/((?!sounds/|assets/|api/socket.io/).*)", 
+      "source": "/((?!sounds/|assets/|api/).*)", 
       "destination": "/index.html" 
     }
   ],
