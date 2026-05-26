@@ -79,7 +79,12 @@ function AudioStateController({ isMuted, isMasked }) {
   return null;
 }
 
-const socket = io(import.meta.env.VITE_API_URL);
+const socket = io(import.meta.env.VITE_API_URL, {
+  path: "/api/socket.io", // Matches the path you defined in index.js
+  transports: ["websocket", "polling"],
+  withCredentials: true
+});
+
 const PhoneInput = ReactPhoneInput.default || ReactPhoneInput;
 
 const CallStatusMessage = ({ status, time }) => {

@@ -18,7 +18,11 @@ function urlBase64ToUint8Array(base64String) {
   }
   return outputArray;
 }
-const socket = io(import.meta.env.VITE_API_URL)
+const socket = io(import.meta.env.VITE_API_URL, {
+  path: "/api/socket.io", // Matches the path you defined in index.js
+  transports: ["websocket", "polling"],
+  withCredentials: true
+});
 
 const Sidebar = ({ users, unreadCounts, latestMessages, selectedUser, handleSelectUser, handleLogout, showSidebar, navigate }) => {
   return (
