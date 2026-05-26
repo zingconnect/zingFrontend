@@ -16,11 +16,8 @@ export default defineConfig({
     }),
   ],
   build: {
-    chunkSizeWarningLimit: 1000, 
+    chunkSizeWarningLimit: 2000, 
     rollupOptions: {
-      // If you are absolutely certain you have removed all imports of 
-      // these packages from your React components, you can remove these.
-      // If the build fails, keep these here.
       external: [
         'flutterwave-node-v3', 
         'aws-sdk'
