@@ -25,7 +25,6 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    // Ensure these aren't pre-bundled by Vite as they are Node-only
     exclude: ['flutterwave-node-v3', 'aws-sdk'] 
   }
 })
