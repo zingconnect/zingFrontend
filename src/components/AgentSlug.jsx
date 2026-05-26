@@ -79,7 +79,7 @@ useEffect(() => {
     setLoading(true);
     setError(false); // Reset error state before fetching
     
-const response = await fetch(`${import.meta.env.VITE_API_URL}/api/agents/${slug}`);
+    const response = await fetch(`/api/agents/${slug}`);
     
     // Check for 404 or other non-ok responses
     if (!response.ok) {
@@ -134,7 +134,7 @@ const response = await fetch(`${import.meta.env.VITE_API_URL}/api/agents/${slug}
     if (!userEmail) return alert("Please enter your email to continue.");
     setIsProcessing(true);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/users/handshake`, {
+      const response = await fetch('/api/users/handshake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
