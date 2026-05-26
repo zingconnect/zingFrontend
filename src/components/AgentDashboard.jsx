@@ -1,0 +1,1514 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { io } from 'socket.io-client';
+import { 
+  BsSearch, BsThreeDotsVertical, BsCheckAll, BsCheck, BsPersonCircle, BsChevronLeft, BsShieldLockFill, 
+  BsShieldFillExclamation, BsCheckCircleFill, BsDownload, BsTelephoneOutboundFill, BsPlayFill, 
+  BsTelephoneFill, BsTelephoneXFill, BsXLg, BsGearFill, BsPlusLg, BsSend, BsPaperclip, BsCameraFill  
+} from 'react-icons/bs';
+import { useAgentCall } from '../context/AgentCallContext';
+import { useSocket } from '../context/SocketProvider';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+const socket = io(import.meta.env.VITE_API_URL)
+
+const Sidebar = ({ users, unreadCounts, latestMessages, selectedUser, handleSelectUser, handleLogout, showSidebar, navigate }) => {
+  return (
+    <aside className={`${showSidebar ? 'flex' : 'hidden'} lg:flex w-full lg:w-[30%] lg:min-w-[350px] bg-card-bg flex-col border-r border-gray-100 z-[100]`}>
+      <header className="h-[60px] bg-page-bg px-4 flex justify-between items-center shrink-0 border-b border-gray-100">
+        <button onClick={() => navigate('/agent/profile')} className="h-10 w-10 rounded-full hover:bg-input-bg flex items-center justify-center transition-colors">
+          <BsPersonCircle size={28} className="text-text-secondary" />
+        </button>
+        <BsThreeDotsVertical className="cursor-pointer text-text-secondary hover:text-text-main transition-colors" size={18} />
+      </header>
+      
+      <div className="p-3 bg-card-bg border-b border-gray-50">
+        <div className="bg-input-bg flex items-center px-3 py-2 rounded-xl border border-transparent focus-within:border-gray-200 transition-all">
+          <BsSearch className="text-text-secondary mr-3" size={12} />
+          <input placeholder="Search client networks..." className="bg-transparent text-xs w-full outline-none text-text-main placeholder-gray-400" />
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto divide-y divide-gray-50" key={JSON.stringify(unreadCounts)}>
+        {users.length > 0 ? users.map((user) => {
+          const userId = String(user._id);
+          const count = unreadCounts[userId] || 0;
+          const isUnread = count > 0;
+          const lastMessage = latestMessages[userId];
+
+          return (
+            <div
+              key={userId}
+              onClick={() => handleSelectUser(user)}
+              className={`flex items-center px-4 py-3 cursor-pointer transition-colors hover:bg-gray-50 ${selectedUser?._id === user._id ? 'bg-gray-100/80' : ''}`}
+            >
+              <div className="relative shrink-0">
+                <div className="w-11 h-11 rounded-full overflow-hidden border border-gray-100 bg-white">
+                  <img src={user.photoUrl} alt={user.firstName} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.src = `https://ui-avatars.com/api/?name=${user.firstName}&background=random&color=fff`; }} />
+                </div>
+                <div className={`absolute -bottom-0.5 -right-0.5 border-2 border-white w-3.5 h-3.5 rounded-full ${user.status === 'online' || user.isOnline ? 'bg-green-500' : 'bg-gray-400'}`} />
+              </div>
+              
+              <div className="ml-3 flex-1 min-w-0">
+                <div className="flex justify-between items-center mb-0.5">
+                  <h3 className={`text-[13px] font-bold truncate ${isUnread ? 'text-blue-600' : 'text-gray-800'}`}>
+                    {user.firstName} {user.lastName}
+                  </h3>
+                  {isUnread && (
+                    <div className="bg-blue-600 text-white text-[9px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow-sm animate-pulse">
+                      {count}
+                    </div>
+                  )}
+                </div>
+
+                {/* UPDATED: Location Display */}
+                <div className="flex items-center gap-1 text-[10px] text-gray-400 mb-0.5">
+                  <span>{user.city || 'Location N/A'}</span>
+                  {user.city && user.state && <span>•</span>}
+                  <span>{user.state}</span>
+                </div>
+
+                <p className={`text-[11px] truncate ${isUnread ? 'font-semibold text-gray-900' : 'text-gray-500'}`}>
+                  {lastMessage || user.email}
+                </p>
+              </div>
+            </div>
+          );
+        }) : (
+          <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
+            <p className="text-xs font-black uppercase tracking-widest text-gray-400">No Secure Links Established</p>
+          </div>
+        )}
+      </div>
+
+      <div className="p-4 border-t border-gray-100 bg-gray-50/50">
+        <button onClick={handleLogout} className="w-full flex items-center justify-center gap-3 py-3 bg-white border border-red-200 text-red-500 rounded-xl hover:bg-red-50 transition-all active:scale-[0.98] shadow-sm">
+          <span className="text-[11px] font-black uppercase tracking-widest">Disconnect Session</span>
+        </button>
+      </div>
+    </aside>
+  );
+};
+
+export const AgentDashboard = () => {
+  const navigate = useNavigate(); 
+  const { 
+    callStatus, isIncomingCall,  activeCaller, selectedUser, setSelectedUser, isMuted, setIsMuted, isSpeakerOn, 
+    setIsSpeakerOn, isVoiceConversionActive, setIsVoiceConversionActive, selectedVoiceId, setSelectedVoiceId, callTime,
+    peerConnected, handleStartCall, handleAcceptCall, handleEndCall, formatTime, setLocalStream, localStream
+   } = useAgentCall();
+
+   
+  const messagesEndRef = useRef(null);
+  const connectionTimeoutRef = useRef(null);
+  const scrollRef = useRef(null);
+  const notificationSound = useRef(new Audio('/sounds/notification.mp3'));  
+  const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
+  const lastNotifiedId = useRef(null);
+   const localAudioRef = useRef(null);
+   const selectedUserRef = useRef(selectedUser);
+const agentDataRef = useRef(null);
+   
+  const [agentData, setAgentData] = useState(null);
+  const [users, setUsers] = useState([]); 
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [fullscreenImage, setFullscreenImage] = useState(null);
+  const [fullscreenVideo, setFullscreenVideo] = useState(null);
+  const [limit, setLimit] = useState(30); 
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [connectionStatus, setConnectionStatus] = useState('online');
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [isDualLoginConflict, setIsDualLoginConflict] = useState(false);
+  const [holdTimer, setHoldTimer] = useState(null);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingOlder, setIsFetchingOlder] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
+  const [unreadCounts, setUnreadCounts] = useState({});
+  const [lastMessageId, setLastMessageId] = useState(null);
+  const [latestMessages, setLatestMessages] = useState({});
+  // --- SUBSCRIPTION STRUCTURES ---
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState("BASIC");
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);  
+  const [isUploading, setIsUploading] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null); 
+  const [previewUrl, setPreviewUrl] = useState(null);   
+  const [caption, setCaption] = useState("");     
+
+  const plans = [
+    {
+      tier: 'BASIC',
+      term: '1 Month',
+      price: '10,500', 
+      frequency: '/mo',
+      popular: false,
+      features: ['Instant Link', 'Unlimited Chats', '24/7 Support'],
+    },
+    {
+      tier: 'GROWTH',
+      term: '6 Months',
+      price: '55,500', 
+      frequency: '',
+      popular: true,
+      features: ['All Basic', 'Priority Routing', '24/7 Support'],
+    },
+    {
+      tier: 'PROFESSIONAL',
+      term: '1 Year',
+      price: '120,000', 
+      frequency: '',
+      popular: false,
+      features: ['All Growth', 'Voice Changer', 'Analytics'],
+    },
+  ];
+const getStatusIcon = (status) => {
+    switch (status) {
+      case 'seen':
+        return <BsCheckAll className="text-blue-400" size={18} />;
+      case 'delivered':
+        return <BsCheckAll className="text-gray-400" size={18} />;
+      default:
+        return <BsCheck className="text-gray-400" size={16} />;
+    }
+  };
+  const startHold = (id) => {
+    const timer = setTimeout(() => {
+      if (window.confirm("Delete this message?")) {
+        handleDeleteMessage(id);
+      }
+    }, 700); 
+    setHoldTimer(timer);
+  };
+  const stopHold = () => {
+    if (holdTimer) {
+      clearTimeout(holdTimer);
+      setHoldTimer(null);
+    }
+  };
+const unlockAudio = () => {
+    setAudioUnlocked(true);
+    console.log("Initializing secure audio channels for Agent Dashboard...");
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) {
+      const tempCtx = new AudioContext();
+      if (tempCtx.state === 'suspended') tempCtx.resume();
+    }
+    const cacheBuster = `?t=${Date.now()}`;
+    if (notificationSound.current) {
+      notificationSound.current.muted = true;
+      notificationSound.current.crossOrigin = "anonymous"; 
+      notificationSound.current.src = `/sounds/notification.mp3${cacheBuster}`;
+      notificationSound.current.load(); 
+      notificationSound.current.play().then(() => {
+        notificationSound.current.pause();
+        notificationSound.current.muted = false; 
+        notificationSound.current.currentTime = 0;
+      }).catch(err => console.warn("Priming skipped for notification audio:", err.message));
+    }
+    
+    if (socket && agentData?._id) {
+      socket.emit("join-private-room", agentData._id);
+    }
+    document.removeEventListener('click', unlockAudio);
+    document.removeEventListener('touchstart', unlockAudio);
+  };
+
+  useEffect(() => {
+  const agentToken = localStorage.getItem('agentToken');
+  if (agentToken) {
+    console.log("[AgentDashboard] Session identified as Agent. Skipping User-Session polling.");
+    return; 
+  }
+  const interval = setInterval(() => {
+    fetch('/api/users/my-session', { 
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('userToken')}` } 
+    }).catch(console.error);
+  }, 5000);
+  
+  return () => clearInterval(interval);
+}, []);
+
+  useEffect(() => {
+    if (localAudioRef.current && localStream) {
+      localAudioRef.current.srcObject = localStream;
+      console.log("⚓ Local stream anchored to muted audio element");
+    }
+  }, [localStream]);
+
+useEffect(() => {
+  if (callStatus === 'idle') {
+    console.log("[AgentDashboard] Core status returned to idle. Cleaning local dashboard layout loops.");
+    setIsEnding(false);
+        if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+      setLocalStream(null);
+    }
+  }
+}, [callStatus, localStream]);
+
+useEffect(() => {
+  if (!audioUnlocked) {
+    document.addEventListener('click', unlockAudio);
+    document.addEventListener('touchstart', unlockAudio);
+  }
+  return () => {
+    document.removeEventListener('click', unlockAudio);
+    document.removeEventListener('touchstart', unlockAudio);
+  };
+}, [audioUnlocked]);
+
+useEffect(() => {
+    if (!socket) return;
+    const handleStatusUpdate = ({ userId, isOnline, lastSeen }) => {
+      setUsers(prevUsers => prevUsers.map(u => 
+        u._id === userId ? { ...u, isOnline, lastSeen } : u
+      ));
+      setSelectedUser(prev => {
+        if (prev?._id === userId) {
+          return { ...prev, isOnline, lastSeen };
+        }
+        return prev;
+      });
+    };
+    socket.on('user_status_update', handleStatusUpdate);
+    return () => {
+      socket.off('user_status_update', handleStatusUpdate);
+    };
+  }, [socket, setSelectedUser]);
+
+  
+
+const triggerNotification = (data) => {
+  if (notificationSound.current) {
+    notificationSound.current.currentTime = 0;
+    notificationSound.current.play().catch(err => console.warn("Audio blocked"));
+  }
+  
+  if ("Notification" in window && Notification.permission === "granted") {
+    // FIX: Changed 'user.firstName' to 'data.firstName'
+    const popup = new Notification(`New message from ${data.firstName || 'Client'}`, {
+      body: data.text || "New message received",
+      icon: data.senderPhoto || '/favicon.ico',
+      tag: `zing-msg-${data.senderId}`,
+      renotify: true,
+      requireInteraction: true
+    });
+    
+    popup.onclick = () => {
+      window.focus();
+      popup.close();
+    };
+  }
+};
+
+  useEffect(() => {
+    if (!socket) return;
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let nextStartTime = 0; 
+    const handleAiAudioChunk = async (base64Audio) => {
+      if (callStatus !== 'connected' && callStatus !== 'connecting') return;
+      try {
+        const binaryString = window.atob(base64Audio);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = isSpeakerOn ? 1.0 : 0.6;
+        gainNode.connect(audioCtx.destination);
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(gainNode);
+        const currentTime = audioCtx.currentTime;
+        if (nextStartTime < currentTime) {
+          nextStartTime = currentTime;
+        }
+
+        source.start(nextStartTime);
+        nextStartTime += audioBuffer.duration;
+
+      } catch (err) {
+        console.error("AI Audio Streaming Error:", err);
+      }
+    };
+
+    socket.on("ai-audio-chunk", handleAiAudioChunk);
+    
+    return () => {
+      socket.off("ai-audio-chunk", handleAiAudioChunk);
+      if (audioCtx.state !== 'closed') {
+        audioCtx.close();
+      }
+    };
+  }, [socket, callStatus, isSpeakerOn]);
+
+// 1. Ensure refs are updated whenever the state changes
+useEffect(() => {
+  selectedUserRef.current = selectedUser;
+  agentDataRef.current = agentData;
+}, [selectedUser, agentData]);
+
+useEffect(() => {
+  if (!socket) return;
+
+ const handleIncomingMessage = (data) => {
+  const senderId = String(data.senderId);
+  const activeSelectedUser = selectedUserRef.current;
+
+  // 1. Force a new object reference to trigger re-renders
+  setUnreadCounts(prev => {
+    const isCurrentChat = activeSelectedUser && senderId === String(activeSelectedUser._id);
+    
+    // If it's the open chat, reset to 0, otherwise increment
+    const newCount = isCurrentChat ? 0 : (prev[senderId] || 0) + 1;
+    
+    // Spread into a brand new object to ensure React detects the change
+    return { 
+      ...prev, 
+      [senderId]: newCount 
+    };
+  });
+
+  // 2. Update message list
+  if (activeSelectedUser && senderId === String(activeSelectedUser._id)) {
+    setMessages(prev => {
+      if (prev.some(m => m._id === data._id)) return prev;
+      return [...prev, data];
+    });
+  }
+};
+
+  socket.on('new-message', handleIncomingMessage);
+    return () => socket.off('new-message', handleIncomingMessage);
+}, [socket]); // Only re-run if socket changes
+
+useEffect(() => {
+  if (!selectedUser) return;
+  const runSync = async () => {
+    try {
+      const token = localStorage.getItem('agentToken');
+      const response = await fetch(`/api/messages/${selectedUser._id}?limit=30`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setMessages(prev => {
+          const newMessages = data.messages;
+          const allMessages = [...prev];
+          
+          newMessages.forEach(msg => {
+            if (!allMessages.find(m => m._id === msg._id)) {
+              allMessages.push(msg);
+            }
+          });
+          return allMessages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        });
+      }
+    } catch (err) {
+      console.error("Background sync jitter:", err);
+    }
+  };
+  runSync();
+  const interval = setInterval(runSync, 30000); 
+  
+  return () => clearInterval(interval);
+}, [selectedUser]);
+
+
+ useEffect(() => {
+    const token = localStorage.getItem('agentToken') || localStorage.getItem('userToken');
+    const currentCallId = activeCaller?.callId || selectedUser?.callId || selectedUser?.roomName;
+
+    if (!token || !currentCallId || callStatus === 'idle') return;
+
+    const syncStatus = async () => {
+      if (!['calling', 'ringing', 'connecting', 'connected'].includes(callStatus)) return;
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/calls/status/${currentCallId}`, {
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json' 
+          }
+        });
+        if (res.status === 404) {
+          handleEndCall();
+          return;
+        }
+        const data = await res.json();
+        if (data && ['ended', 'declined', 'missed', 'rejected'].includes(data.status)) {
+          console.log("[AgentDashboard] Sync engine terminated dead database link.");
+          handleEndCall();
+        }
+      } catch (e) {
+        console.warn("ZingConnect Sync Jitter:", e.message);
+      }
+    };
+    const interval = setInterval(syncStatus, 3000);
+    return () => clearInterval(interval);
+  }, [callStatus, activeCaller, selectedUser, handleEndCall]);
+
+useEffect(() => {
+  const container = scrollRef.current;
+  if (!container || messages.length === 0) return;
+  const lastMessage = messages[messages.length - 1];
+  const isMySentMessage = lastMessage?.senderId === agentData?._id;
+  const isNearBottom = container.scrollHeight - container.clientHeight - container.scrollTop < 200;
+  if (isUploading || isMySentMessage || isNearBottom) {
+    const timeoutId = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ 
+        behavior: isUploading ? "auto" : "smooth", 
+        block: "end" 
+      });
+    }, 50);
+
+    return () => clearTimeout(timeoutId);
+  }
+}, [messages, isUploading, agentData?._id]);
+
+// Add these helper functions inside your component
+const playNotificationSound = () => {
+  if (audioUnlocked) {
+    const audio = new Audio('/sounds/notification.mp3'); // Ensure this path is correct
+    audio.play().catch(e => console.error("Sound play failed", e));
+  }
+};
+
+const triggerBrowserNotification = (message) => {
+  if (Notification.permission === "granted" && document.hidden) {
+    new Notification("New Message from ZingConnect", {
+      body: message.text,
+      icon: '/favicon.ico'
+    });
+  }
+};
+
+useEffect(() => {
+  if (!socket) return;
+
+  const handleNewMessage = (message) => {
+    if (message.senderId !== selectedUser?._id) {
+        playNotificationSound();
+        triggerBrowserNotification(message);
+    }
+        setUnreadCounts(prev => ({
+        ...prev,
+        [message.senderId]: (prev[message.senderId] || 0) + 1
+    }));
+  };
+
+  socket.on('new-message', handleNewMessage);
+  
+  return () => {
+    socket.off('new-message', handleNewMessage);
+  };
+}, [socket, selectedUser?._id]); // Dependency on selectedUser ensures we know who NOT to notify
+
+  // --- MEMORY DISPOSAL EFFECT ---
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+        console.log("Memory Cleaned: Preview URL revoked.");
+      }
+    };
+  }, [previewUrl]);
+
+  // --- AUTOMATED VOICE PROFILE IDENTITY SYNC ---
+  useEffect(() => {
+    if (isVoiceConversionActive) return;
+    if (agentData?.voiceId) {
+      setSelectedVoiceId(agentData.voiceId);
+      console.log("📡 Voice Identity Synced to Dashboard:", agentData.voiceId);
+    } else {
+      setSelectedVoiceId("");
+    }
+  }, [agentData, isVoiceConversionActive, setSelectedVoiceId]);
+
+  // --- DEVICE NETWORK STATUS WATCHER ---
+  useEffect(() => {
+    const handleOnline = () => setConnectionStatus('connected');
+    const handleOffline = () => setConnectionStatus('offline');
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // --- SECURITY HEARTBEAT ENGINE & DUAL LOGIN DETECTION ---
+  useEffect(() => {
+    const heartBeat = setInterval(async () => {
+      const token = localStorage.getItem('agentToken');
+      if (!token) return;
+
+      try {
+        const response = await fetch('/api/agents/heartbeat', { 
+          method: 'POST', 
+          headers: { 'Authorization': `Bearer ${token}` } 
+        });
+
+        if (response.status === 403) {
+          const data = await response.json();
+          if (data.reason === 'dual_login') {
+            setIsDualLoginConflict(true); 
+            clearInterval(heartBeat); 
+          }
+        }
+      } catch (err) {
+        console.error("Heartbeat sync failed");
+      }
+    }, 60000); 
+
+    return () => clearInterval(heartBeat);
+  }, []);
+// --- PROFILE INITIALIZATION & SUBSCRIPTION CHECK ---
+  useEffect(() => {
+    const existingScript = document.querySelector('script[src*="flutterwave"]');
+    let script;
+
+    if (!existingScript) {
+      script = document.createElement('script');
+      script.src = "https://checkout.flutterwave.com/v3.js";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+
+    const fetchInitialData = async () => {
+      const token = localStorage.getItem('agentToken');
+      if (!token) return navigate('/');
+      try {
+        const [profileRes, usersRes] = await Promise.all([
+          fetch('/api/agents/profile/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          }),
+          fetch('/api/agents/my-users', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          }).catch(err => {
+            console.warn("Pre-fetching users decoupled fallback:", err.message);
+            return null; // Don't let a secondary users endpoint failure crash the main authentication logic
+          })
+        ]);
+        if (profileRes.status === 401) {
+          localStorage.removeItem('agentToken');
+          return navigate('/');
+        }
+
+        if (profileRes.status === 403) {
+          const errorData = await profileRes.json();
+          if (errorData.reason === 'dual_login') {
+            setIsDualLoginConflict(true);
+            setLoading(false);
+            return;
+          }
+        }
+        if (!profileRes.ok) throw new Error("Failed to load profile");
+        const profileData = await profileRes.json();
+        const agent = profileData.agent;
+        if (agent) {
+          setAgentData(agent);
+          const activeStatus = !!agent.isSubscribed;
+          setIsSubscribed(activeStatus);
+
+          if (agent.plan) setSelectedPlan(agent.plan);
+          if (activeStatus && usersRes && usersRes.ok) {
+            const userData = await usersRes.json();
+            if (userData.success && Array.isArray(userData.users)) {
+              setUsers(userData.users);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Initialization error:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchInitialData();
+
+    return () => {
+      if (script && document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+    };
+  }, [navigate]);
+
+
+  const handlePayment = async () => {
+    if (!agentData || !agentData.email) {
+      alert("Profile data is still loading. Please wait a moment or refresh.");
+      return;
+    }
+    setPaymentProcessing(true);
+    const token = localStorage.getItem('agentToken');
+    const activePlan = plans.find(p => p.tier === selectedPlan);
+
+    if (!activePlan) {
+      alert("Invalid plan selected");
+      setPaymentProcessing(false);
+      return;
+    }
+    try {
+      const finalNairaAmount = Number(activePlan.price.replace(/,/g, ''));
+      window.FlutterwaveCheckout({
+        public_key: import.meta.env.VITE_FLW_PUBLIC_KEY,
+        tx_ref: `ZING-${Date.now()}`,
+        amount: finalNairaAmount,
+        currency: "NGN",
+        payment_options: "card, account, transfer, ussd",
+        customer: {
+          email: agentData?.email,
+          name: `${agentData?.firstName} ${agentData?.lastName}`,
+          phone_number: agentData?.phone, 
+        },
+        customizations: {
+          title: "ZingConnect",
+          description: `Activation for ${activePlan.tier} Plan (₦${activePlan.price})`,
+          logo: "https://cdn-icons-png.flaticon.com/512/9431/9431166.png",
+        },
+        callback: async (response) => {
+          try {
+            const verifyRes = await fetch('/api/subscriptions/verify', {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                transaction_id: response.transaction_id,
+                plan: activePlan.tier,
+                ngnAmount: finalNairaAmount 
+              })
+            });
+
+            if (verifyRes.ok) {
+              setShowSuccessOverlay(true);
+              setTimeout(() => {
+                window.location.reload(); 
+              }, 4000);
+            } else {
+              const errData = await verifyRes.json();
+              alert(errData.message || "Verification failed");
+            }
+          } catch (err) {
+            console.error("Verification error:", err);
+            alert("Connection error during verification.");
+          } finally {
+            setPaymentProcessing(false);
+          }
+        },
+        onclose: () => {
+          setPaymentProcessing(false);
+        }
+      });
+    } catch (err) {
+      console.error("Payment Initialization Error:", err);
+      alert("Failed to initialize payment.");
+      setPaymentProcessing(false);
+    }
+  };
+
+  // --- ATTACHMENT PREVIEW ENGINE ---
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file || !selectedUser) return;
+
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    const detectedType = isVideo ? 'video' : 'image';
+
+    if (!isVideo && !isImage) {
+      alert("Please upload only images or videos.");
+      return;
+    }
+
+    const maxLimit = 100 * 1024 * 1024; 
+    if (file.size > maxLimit) {
+      alert(`This ${detectedType} is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum allowed is 100MB.`);
+      e.target.value = null; 
+      return;
+    }
+
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewFile(file);
+    setPreviewUrl(objectUrl);
+    setCaption("");
+
+    if (e.target) e.target.value = null; 
+  };
+
+  const handleDownload = async (fileUrl, detectedType) => {
+    try {
+      const response = await fetch(fileUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const timestamp = new Date().getTime();
+      const extension = detectedType === 'video' ? 'mp4' : 'jpg';
+      const fileName = `Zing_Secure_${timestamp}.${extension}`;
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Download failed:", error);
+    }
+  };
+
+  // --- DATA STORAGE CLEANUP LOGIC ---
+  const handleDeleteMessage = async (msgId) => {
+    const token = localStorage.getItem('agentToken');
+    const originalMessages = [...messages];
+    setMessages(prev => prev.filter(m => (m._id || m.id) !== msgId));
+
+    try {
+      const res = await fetch(`/api/messages/${msgId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!res.ok) {
+        setMessages(originalMessages);
+        alert("Failed to delete message from server.");
+      }
+    } catch (err) {
+      setMessages(originalMessages);
+      console.error("Delete request failed:", err);
+    }
+  };
+
+  const handleFinalSend = async () => {
+    if (!previewFile || isUploading || !selectedUser) return;
+    setIsUploading(true);
+
+    try {
+      const token = localStorage.getItem('agentToken');
+      const detectedType = previewFile.type.startsWith('video/') ? 'video' : 'image';
+      
+      const urlResponse = await fetch('/api/messages/get-upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ fileName: previewFile.name, fileType: previewFile.type })
+      });
+      const { uploadUrl, key } = await urlResponse.json();
+
+      const directUpload = await fetch(uploadUrl, {
+        method: 'PUT',
+        body: previewFile,
+        headers: { 'Content-Type': previewFile.type }
+      });
+
+      if (!directUpload.ok) throw new Error("Cloud upload failed");
+
+      const confirmResponse = await fetch('/api/messages/confirm-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          receiverId: selectedUser._id,
+          text: caption,
+          fileUrl: key,
+          fileType: detectedType
+        })
+      });
+
+      const finalData = await confirmResponse.json();
+      if (finalData.success) {
+        setMessages(prev => [...prev, finalData.message]);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(null);
+        setPreviewFile(null);
+        setCaption("");
+      }
+    } catch (err) {
+      alert("Upload failed. Please check your connection.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    const currentSlug = agentData?.slug;
+    localStorage.removeItem('agentToken');
+    window.location.href = currentSlug ? `/${currentSlug}` : '/';
+  };
+
+
+const handleScroll = async (e) => {
+  const container = e.target;
+    const isAtTop = (container.scrollHeight - container.scrollTop - container.clientHeight) < 80;
+
+  if (!isAtTop || isFetchingOlder || !hasMore || !selectedUser) return;
+
+  setIsFetchingOlder(true);
+    const previousScrollHeight = container.scrollHeight;
+  const previousScrollTop = container.scrollTop;
+
+  try {
+    const token = localStorage.getItem('agentToken');
+    const oldestMessage = messages[0]; 
+    const oldestMessageId = oldestMessage?._id || oldestMessage?.id;
+
+    if (!oldestMessageId) {
+      setIsFetchingOlder(false);
+      return;
+    }
+
+    const response = await fetch(`/api/messages/${selectedUser._id}?limit=30&beforeId=${oldestMessageId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (response.ok) {
+      const data = await response.json();
+      
+      if (data.success && data.messages?.length > 0) {
+        setHasMore(data.hasMore);
+                setMessages(prev => [...data.messages, ...prev]);
+        requestAnimationFrame(() => {
+          if (container) {
+            const newHeight = container.scrollHeight;
+            const heightDifference = newHeight - previousScrollHeight;
+            container.scrollTop = previousScrollTop + heightDifference;
+          }
+        });
+      } else {
+        setHasMore(false);
+      }
+    }
+  } catch (err) {
+    console.error("ZingConnect Pagination Failure:", err);
+  } finally {
+    setIsFetchingOlder(false);
+  }
+};
+
+const handleSelectUser = async (user) => {
+  if (window.innerWidth < 1024) setShowSidebar(false);
+    setUnreadCounts(prev => ({ ...prev, [user._id]: 0 }));
+  
+  setMessages([]); 
+  setIsInitialLoad(true); 
+  setSelectedUser(user);
+  setLimit(30);
+  setHasMore(true); 
+  setIsFetchingOlder(false);
+
+  if (socket) socket.emit('join-chat', user._id); 
+
+  try {
+    const token = localStorage.getItem('agentToken');
+    if (!token) return;
+
+    const response = await fetch(`/api/messages/${user._id}?limit=30`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (response.ok) {
+      setConnectionStatus('connected');
+      const data = await response.json();
+      
+      if (data.success && Array.isArray(data.messages)) {
+        setMessages(data.messages);
+        setHasMore(data.hasMore);
+        
+        // Ensure scroll to bottom after messages load
+        setTimeout(() => {
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
+        }, 60);
+      }
+
+      // Mark as read on server
+      fetch(`/api/messages/mark-read/${user._id}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(err => console.error("Mark read background error:", err));
+      
+    } else {
+      setConnectionStatus('connecting');
+    }
+  } catch (err) {
+    setConnectionStatus('connecting');
+    console.error("Failed to load chat history:", err);
+  }
+};
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const userIdFromUrl = params.get('userId');
+    if (userIdFromUrl && users.length > 0) {
+      const userToSelect = users.find(u => u._id === userIdFromUrl);
+      if (userToSelect) {
+        handleSelectUser(userToSelect);
+        navigate('/agent/dashboard', { replace: true });
+      }
+    }
+  }, [users, navigate]); 
+
+  useEffect(() => {
+    setIsInitialLoad(true);
+  }, [selectedUser?._id]);
+
+
+  useEffect(() => {
+    if (!("Notification" in window)) {
+      console.log("This browser does not support desktop notifications");
+    } else if (Notification.permission !== "granted") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // --- MESSAGE ACTIONS: FAILURES & RESENDS ---
+  const handleResend = async (failedMsg) => {
+    setMessages(prev => prev.filter(m => (m._id || m.id) !== (failedMsg._id || failedMsg.id)));
+    if (failedMsg.fileUrl) {
+      setPreviewFile(failedMsg.file); 
+      setPreviewUrl(failedMsg.fileUrl);
+      setCaption(failedMsg.text);
+    } else {
+      setNewMessage(failedMsg.text);
+    }
+  };
+
+  // --- SEND ACTION MECHANICS WITH OPTIMISTIC RENDERING ---
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !selectedUser || isUploading) return;
+
+    const textToSend = newMessage;
+    const tempId = Date.now().toString(); 
+    setNewMessage(''); 
+
+    const optimisticMsg = {
+      _id: tempId,
+      text: textToSend,
+      senderModel: 'Agent',
+      status: 'sending', 
+      createdAt: new Date().toISOString(),
+      fileType: 'text'
+    };
+    setMessages(prev => [...prev, optimisticMsg]);
+
+    try {
+      const token = localStorage.getItem('agentToken');
+      const response = await fetch('/api/messages/send', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          receiverId: selectedUser._id,
+          text: textToSend,
+          fileType: 'text'
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setMessages(prev => 
+          prev.map(msg => msg._id === tempId ? data.message : msg)
+        );
+      } else {
+        setMessages(prev => 
+          prev.map(msg => msg._id === tempId ? { ...msg, status: 'failed' } : msg)
+        );
+      }
+    } catch (err) {
+      console.error("Message failed to send:", err);
+      setMessages(prev => 
+        prev.map(msg => msg._id === tempId ? { ...msg, status: 'failed' } : msg)
+      );
+    }
+  };
+
+ if (loading) return (
+     <div className="h-screen flex items-center justify-center bg-page-bg text-[10px] font-bold uppercase tracking-widest text-text-secondary">
+      Initializing ZingConnect...
+    </div>
+  );
+
+  return (
+    <div className="h-screen w-screen bg-page-bg flex overflow-hidden font-sans antialiased text-text-main relative transition-colors duration-300">
+     {!audioUnlocked && (
+        <div 
+          onClick={unlockAudio} 
+          className="fixed inset-0 z-[100000] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center cursor-pointer"
+        >
+          <div className="bg-white p-8 rounded-3xl shadow-2xl text-center max-w-xs animate-in zoom-in duration-300">
+            <div className="mb-4 text-blue-600 animate-pulse text-2xl">🔊</div>
+            <h3 className="text-sm font-black uppercase tracking-widest text-slate-800 mb-2">Audio Systems Locked</h3>
+            <p className="text-[11px] text-slate-500">Click anywhere to initialize secure audio transmission protocols.</p>
+          </div>
+        </div>
+      )}
+      <audio ref={localAudioRef} muted autoPlay playsInline style={{ display: 'none' }} />
+
+      {/* --- BACKGROUND LIVEKIT WEBRTC WRAPPER CONTEXT --- */}
+      {callStatus !== 'idle' && lkToken && (
+        <LiveKitRoom
+          video={false}
+          audio={true} 
+          token={lkToken}
+          serverUrl={import.meta.env.VITE_LIVEKIT_URL}
+          connect={true} 
+          options={{
+            publishDefaults: {
+              audioPreset: { maxBitrate: 48000 },
+              dtx: true, 
+            },
+            adaptiveStream: true,
+          }}
+          onDisconnected={handleEndCall}
+        >
+          <AudioSession 
+            isMuted={isMuted} 
+            isMasked={selectedVoiceId && selectedVoiceId !== 'natural'}
+            isIncomingCall={isIncomingCall}
+            setCallStatus={setCallStatus}
+            setPeerConnected={setPeerConnected}
+            ringtoneAudio={null}
+            callingAudio={null}
+          />
+        </LiveKitRoom>
+      )}
+
+      {/* --- CONNECTION STATUS OVERLAY --- */}
+      {(connectionStatus === 'offline' || connectionStatus === 'connecting') && (
+        <div className={`fixed top-0 left-0 w-full z-[50000] py-1.5 flex items-center justify-center gap-3 animate-in slide-in-from-top duration-300 ${connectionStatus === 'offline' ? 'bg-[#ea0038]' : 'bg-[#0052FF]'}`}>
+          <div className="flex items-center gap-2 text-white">
+            {connectionStatus === 'offline' ? (
+              <div className="flex items-center gap-2">
+                <BsShieldLockFill className="animate-pulse" size={12} />
+                <span className="text-[10px] font-black uppercase tracking-widest">Security Node Offline • Check Connection</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span className="text-[10px] font-black uppercase tracking-widest">Establishing Encrypted Tunnel...</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- SUCCESS OVERLAY --- */}
+      {showSuccessOverlay && (
+        <div className="fixed inset-0 z-[20000] bg-blue-600 flex flex-col items-center justify-center text-white p-6 animate-in fade-in duration-300">
+          <div className="bg-white/10 p-6 rounded-full mb-6">
+            <BsCheckCircleFill size={60} className="text-white animate-bounce" />
+          </div>
+          <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter mb-2 text-center">Activation Successful!</h1>
+          <p className="text-sm md:text-lg font-medium opacity-90 text-center max-w-xs mb-8">
+            Your <strong>{selectedPlan}</strong> plan has been activated.
+          </p>
+          <button onClick={() => window.location.reload()} className="w-full max-w-xs bg-white text-blue-600 font-black py-4 rounded-xl shadow-xl uppercase tracking-widest text-[11px] transition-transform active:scale-95">Return to Dashboard</button>
+        </div>
+      )}
+
+      {/* --- DUAL LOGIN CONFLICT OVERLAY --- */}
+      {isDualLoginConflict && (
+        <div className="fixed inset-0 z-[60000] bg-slate-900/98 backdrop-blur-xl flex items-center justify-center p-6">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-12 text-center animate-in zoom-in duration-300">
+            <div className="w-20 h-20 bg-red-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
+              <BsShieldFillExclamation size={40} className="text-red-500 animate-pulse" />
+            </div>
+            <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 mb-4">Security Alert</h2>
+            <p className="text-slate-500 text-sm mb-8">Your account is active on another device.</p>
+            <div className="space-y-4">
+              <button onClick={() => { localStorage.removeItem('agentToken'); window.location.reload(); }} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-[11px] transition-colors shadow-lg">Disconnect Other Device</button>
+              <button onClick={() => navigate('/login')} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-4 rounded-2xl uppercase tracking-widest text-[11px] transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- SUBSCRIPTION MODAL --- */}
+      {!loading && !isSubscribed && !isDualLoginConflict && !showSuccessOverlay && (
+        <div className="absolute inset-0 z-[10000] bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-6">
+          <div className="bg-white w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh] animate-in zoom-in-95 duration-300">
+            
+            {/* Left Accent Banner */}
+            <div className="bg-blue-600 p-10 text-white md:w-1/3 flex flex-col justify-between">
+              <div>
+                <BsShieldLockFill size={32} className="mb-4 opacity-90" />
+                <h2 className="text-3xl font-black uppercase tracking-tighter mb-3">Account Inactive</h2>
+                <p className="text-blue-100 text-sm opacity-90">Subscription required for dashboard access.</p>
+              </div>
+              <div className="mt-8 pt-8 border-t border-blue-500/50">
+                <p className="text-[10px] uppercase font-bold tracking-widest opacity-60">Current Selection</p>
+                <p className="text-3xl font-black">{selectedPlan}</p>
+                <p className="text-xs text-blue-200 mt-1 font-medium">
+                  Valid for {plans.find(p => p.tier === selectedPlan)?.term || 'Access'}
+                </p>
+              </div>
+            </div>
+
+          {/* Right Pricing Plan Selection */}
+<div className="p-12 md:w-2/3 bg-gray-50 flex flex-col overflow-y-auto">
+  <h3 className="text-xl font-bold text-gray-800 mb-6">Choose Your Access Tier</h3>
+  
+  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+    {plans.map((plan) => (
+      <div
+        key={plan.tier}
+        onClick={() => setSelectedPlan(plan.tier)}
+        className={`cursor-pointer p-5 rounded-2xl border-2 transition-all relative flex flex-col justify-between h-36 ${
+          selectedPlan === plan.tier 
+            ? 'border-blue-600 bg-white shadow-xl scale-[1.03]' 
+            : 'border-gray-200 bg-white opacity-80 hover:opacity-100'
+        }`}
+      >
+        {plan.popular && (
+          <span className="absolute -top-2.5 left-4 bg-orange-500 text-white text-[8px] font-black tracking-widest px-2 py-0.5 rounded-full uppercase">
+            Popular
+          </span>
+        )}
+        <div>
+          <span className={`text-[9px] font-black uppercase tracking-widest block ${selectedPlan === plan.tier ? 'text-blue-600' : 'text-gray-400'}`}>
+            {plan.tier}
+          </span>
+          <span className="text-xs font-bold text-gray-500 block mt-0.5">
+            {plan.term} Access
+          </span>
+        </div>
+        <div>
+          <div className="text-2xl font-black text-gray-900 leading-none">
+            ₦{plan.price}
+          </div>
+          <span className="text-[10px] text-gray-400 font-medium mt-1 block">
+            {plan.tier === 'BASIC' && 'billed monthly'}
+            {plan.tier === 'GROWTH' && 'billed every 6 months'}
+            {plan.tier === 'PROFESSIONAL' && 'billed annually'}
+          </span>
+        </div>
+      </div>
+    ))}
+  </div>
+  <button 
+    disabled={paymentProcessing} 
+    onClick={handlePayment} 
+    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold py-4 rounded-xl uppercase tracking-widest text-[11px] transition-colors shadow-md"
+  >
+    {paymentProcessing ? "Processing..." : `Activate ${selectedPlan} Access`}
+  </button>
+</div>
+          </div>
+        </div>
+      )}
+
+<Sidebar 
+  users={users}
+  unreadCounts={unreadCounts}
+  latestMessages={latestMessages}
+  selectedUser={selectedUser}
+  handleSelectUser={handleSelectUser}
+  handleLogout={handleLogout}
+  showSidebar={showSidebar}
+  navigate={navigate}
+/>
+
+      {/* --- MAIN CHAT INTERFACE --- */}
+      <main className={`${!showSidebar ? 'flex' : 'hidden'} lg:flex flex-1 flex-col bg-page-bg relative overflow-hidden`}>
+        {selectedUser ? (
+          <>
+            <header className="h-[75px] bg-card-bg px-4 flex justify-between items-center z-30 shadow-sm border-b border-gray-100 relative">
+              <div className="flex items-center gap-3 min-w-0">
+                <button onClick={() => setShowSidebar(true)} className="lg:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors">
+                  <BsChevronLeft size={16} />
+                </button>
+                
+                <div onClick={() => setShowUserModal(true)} className="w-11 h-11 rounded-full overflow-hidden border border-gray-200 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-blue-500/30 transition-all shrink-0">
+                  <img
+                    src={selectedUser.photoUrl}
+                    className="w-full h-full object-cover"
+                    alt="Profile"
+                    onError={(e) => { e.currentTarget.src = `https://ui-avatars.com/api/?name=${selectedUser.firstName}&background=random&color=fff`; }}
+                  />
+                </div>
+
+                <div className="cursor-pointer min-w-0" onClick={() => setShowUserModal(true)}>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-text-main truncate leading-tight">
+                      {selectedUser.firstName} {selectedUser.lastName}
+                    </h2>
+                    <span className={`flex items-center gap-1 text-[9px] font-black uppercase shrink-0 ${
+                      selectedUser.status === 'online' || selectedUser.isOnline ? 'text-green-500' : 'text-gray-400'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        selectedUser.status === 'online' || selectedUser.isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+                      }`} />
+                      {selectedUser.status === 'online' || selectedUser.isOnline ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+                  
+                  {selectedUser.status === 'online' || selectedUser.isOnline ? (
+                    <p className="text-[11px] font-medium text-gray-500 truncate leading-tight mt-0.5">
+                      {selectedUser.email}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tight mt-0.5">
+                      Last seen: {selectedUser.lastSeen ? new Date(selectedUser.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 text-gray-400 shrink-0">
+                <button onClick={() => handleStartCall(selectedUser._id)} className="text-gray-500 hover:text-green-600 transition-colors active:scale-90 p-2 rounded-full hover:bg-gray-50" title="Start Secure Call">
+                  <BsTelephoneFill size={16} /> 
+                </button>
+                <button onClick={() => navigate('/agent/call-settings')} className="text-gray-500 hover:text-blue-600 transition-colors active:scale-90 p-2 rounded-full hover:bg-gray-50" title="Call Settings"> 
+                  <BsGearFill size={18} />
+                </button>
+              </div>
+            </header>
+
+            <div 
+              ref={scrollRef} 
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto p-4 md:px-12 lg:px-20 space-y-3 z-10 flex flex-col-reverse bg-page-bg dark:bg-slate-950/50"
+            >
+              {/* Scroll Anchor element sits perfectly at bottom of log sequence in flex-col-reverse */}
+              <div ref={messagesEndRef} className="h-2 shrink-0 w-full" />
+              
+              {/* Render normal stream flow */}
+              {messages.slice().reverse().map((m) => {
+                const isMe = m.senderId === agentData?._id;
+                const msgKey = m._id || m.id || `temp-${m.createdAt}-${Math.random()}`;
+
+                {/* CALL LOG MESSAGE CONDITIONAL RENDERING */}
+                if (m.fileType === 'call_log' && m.callMetadata) {
+                  const isMissed = m.callMetadata.status === 'missed';
+                  return (
+                    <div key={msgKey} className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'} my-1 animate-in fade-in duration-300`}>
+                      <div className={`px-5 py-2.5 rounded-2xl flex items-center gap-4 shadow-sm border max-w-[80%] ${
+                        isMe ? 'bg-green-600 border-green-500 text-white rounded-tr-none' : 'bg-white border-gray-200 text-slate-800 rounded-tl-none'
+                      } dark:bg-white/10 dark:backdrop-blur-md dark:border-white/10 dark:text-white`}>
+                        <div className={`p-2.5 rounded-full ${isMe ? 'bg-white/20 text-white' : isMissed ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                          {isMissed ? <BsTelephoneXFill size={14} /> : <BsTelephoneOutboundFill size={14} />}
+                        </div>
+                        <div className="flex flex-col">
+                          <p className={`text-[11px] font-black uppercase tracking-widest ${isMe ? 'text-white' : 'text-gray-700'} dark:text-white`}>
+                            {isMissed ? 'Missed Voice Call' : `Voice Call • ${m.callMetadata.duration || 0}s`}
+                          </p>
+                          <span className={`text-[9px] font-bold ${isMe ? 'text-white/70' : 'text-gray-400'} dark:text-white/60`}>
+                            {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                {/* TEXT OR ATTACHMENT MESSAGE STANDARD RENDERING */}
+                return (
+                  <div
+                    key={msgKey}
+                    onMouseDown={() => isMe && startHold(m._id)}
+                    onMouseUp={stopHold}
+                    className={`max-w-[85%] md:max-w-[65%] px-3.5 py-2 rounded-xl shadow-sm relative flex flex-col ${
+                      isMe 
+                        ? 'bg-green-600 text-white self-end rounded-tr-none' 
+                        : 'bg-card-bg text-text-main border border-gray-100 dark:border-slate-800 self-start rounded-tl-none'
+                    } mb-1`}
+                  >
+                    {(m.fileType === 'image' || m.fileType === 'video') && (
+                      <div className="relative mb-2 mt-0.5 group rounded-lg overflow-hidden border border-black/5">
+                        {m.fileType === 'image' ? (
+                          <img src={m.fileUrl} onClick={() => setFullscreenImage(m.fileUrl)} className="bg-gray-100 object-cover w-full cursor-pointer hover:opacity-95 max-h-72 transition-opacity" alt="attachment" />
+                        ) : (
+                          <div className="relative max-h-72 overflow-hidden bg-black flex items-center">
+                            <video className="w-full bg-black cursor-pointer" onClick={() => setFullscreenVideo(m.fileUrl)}>
+                              <source src={m.fileUrl} type="video/mp4" />
+                            </video>
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                              <BsPlayFill size={30} className="text-white bg-black/40 p-2 rounded-full backdrop-blur-sm" />
+                            </div>
+                          </div>
+                        )}
+                        <button onClick={() => handleDownload(m.fileUrl, m.fileType)} className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><BsDownload size={12} /></button>
+                      </div>
+                    )}
+                    
+                    {m.text && <p className="text-[13px] md:text-[14px] leading-relaxed break-words whitespace-pre-wrap">{m.text}</p>}
+                    
+                    <div className="flex items-center justify-end gap-1 mt-1 border-t border-black/5 pt-1">
+                      <span className={`text-[8px] font-bold uppercase ${isMe ? 'text-white/80' : 'text-gray-400'}`}>
+                        {new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {isMe && (
+                        <div className="flex items-center ml-1">
+                          {m.status === 'sending' ? (
+                            <div className="w-2.5 h-2.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          ) : m.status === 'failed' ? (
+                            <BsPlusLg className="rotate-45 text-red-300 cursor-pointer" size={10} onClick={() => handleResend(m)} />
+                          ) : (
+                            <BsCheckAll className={m.status === 'seen' ? 'text-blue-300' : 'text-white/60'} size={14} />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {isFetchingOlder && (
+                <div className="w-full flex justify-center py-4 animate-pulse">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-blue-500 bg-blue-50 dark:bg-blue-950/40 px-3 py-1.5 rounded-full border border-blue-100 dark:border-blue-900/50">
+                    Synchronizing past transmissions...
+                  </span>
+                </div>
+              )}
+            </div>
+
+         {/* --- FOOTER INPUT PANEL --- */}
+<footer className="min-h-[56px] bg-card-bg px-3 py-2 flex items-center justify-between gap-2 z-10 border-t border-gray-100">
+  <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*,video/*" className="hidden" />
+    <input type="file" ref={cameraInputRef} onChange={handleFileUpload} accept="image/*" capture="environment" className="hidden" />
+  
+  <div className="flex items-center shrink-0 gap-1">
+    <button type="button" onClick={() => fileInputRef.current.click()} disabled={isUploading} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500 disabled:opacity-50">
+      <BsPaperclip size={18} />
+    </button>
+    <button type="button" onClick={() => cameraInputRef.current.click()} disabled={isUploading} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500 disabled:opacity-50">
+      <BsCameraFill size={18} />
+    </button>
+  </div>
+
+  <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2">
+    <input 
+      value={newMessage} 
+      onChange={(e) => setNewMessage(e.target.value)} 
+      placeholder="Type secure instruction transmission..." 
+      className="w-full bg-input-bg text-text-main px-4 py-2 rounded-full text-sm outline-none border border-transparent focus:border-gray-200 transition-all shadow-inner placeholder-gray-400" 
+    />
+    <button 
+      type="submit" 
+      disabled={!newMessage.trim() || isUploading} 
+      className={`p-2.5 rounded-full shadow-sm transition-all shrink-0 ${newMessage.trim() && !isUploading ? 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+    >
+      <BsSend size={14} />
+    </button>
+  </form>
+</footer>
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-slate-50/50">
+            <div className="p-5 bg-white rounded-3xl shadow-sm border border-gray-100 mb-4 opacity-75">
+              <BsShieldLockFill size={32} className="text-blue-600 animate-pulse" />
+            </div>
+            <h1 className="text-xl font-black uppercase tracking-widest text-slate-800">ZingConnect Terminal</h1>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">Select an isolated node to monitor peer-to-peer data pipes</p>
+          </div>
+        )}
+
+        {/* --- USER DETAILS MODAL --- */}
+        {showUserModal && selectedUser && (
+          <div className="fixed inset-0 z-[50000] flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowUserModal(false)} />
+            <div className="relative w-full max-w-[340px] bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="h-24 bg-gradient-to-br from-blue-600 to-indigo-700 w-full" />
+              <div className="px-6 pb-8 flex flex-col items-center">
+                <div className="relative -mt-12 mb-4 w-24 h-24 rounded-[2rem] overflow-hidden bg-white border-4 border-white shadow-md">
+                  <img 
+                    src={selectedUser.photoUrl} 
+                    className="w-full h-full object-cover" 
+                    alt="Profile" 
+                    onError={(e) => { e.currentTarget.src = `https://ui-avatars.com/api/?name=${selectedUser.firstName}&background=random&color=fff`; }}
+                  />
+                </div>
+                <h3 className="text-base font-black text-slate-800">{selectedUser.firstName} {selectedUser.lastName}</h3>
+                <p className="text-[10px] font-bold text-blue-600 uppercase mb-6 tracking-widest">Verified Client Node</p>
+                
+                <div className="w-full space-y-2.5 text-left">
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-gray-100">
+                    <p className="text-[8px] font-black uppercase text-slate-400 mb-0.5">Email Address</p>
+                    <p className="text-[11px] font-bold text-slate-700 break-all">{selectedUser.email}</p>
+                  </div>
+
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-gray-100">
+                    <p className="text-[8px] font-black uppercase text-slate-400 mb-0.5">Phone Number</p>
+                    <p className="text-[11px] font-bold text-slate-700">
+                      {selectedUser.phoneNumber || selectedUser.phone || 'No Phone Registered'}
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-gray-100">
+                    <p className="text-[8px] font-black uppercase text-slate-400 mb-0.5">Location Details</p>
+                    <p className="text-[11px] font-bold text-slate-700 leading-relaxed">
+                      {selectedUser.address && <span>{selectedUser.address}<br /></span>}
+                      <span className="text-blue-600">
+                        {selectedUser.city || ''}
+                        {selectedUser.city && selectedUser.state ? ', ' : ''}
+                        {selectedUser.state || ''}
+                      </span>
+                      {!selectedUser.address && !selectedUser.city && !selectedUser.state && 'Information Not Provided'}
+                    </p>
+                  </div>
+                </div>
+                
+                <button 
+                  onClick={() => setShowUserModal(false)}
+                  className="mt-6 w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-500 text-[10px] font-black uppercase tracking-widest rounded-2xl transition-colors"
+                >
+                  Close Profile
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {/* --- MEDIA PREVIEW OVERLAY --- */}
+        {previewUrl && (
+          <div className="fixed inset-0 z-[70000] bg-slate-950 flex flex-col animate-in fade-in duration-300">
+            <div className="p-4 flex justify-between items-center bg-slate-900/90 text-white border-b border-white/5">
+              <button onClick={() => { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }} className="p-2 hover:bg-white/10 rounded-full transition-colors"><BsXLg size={20} /></button>
+              <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">Media Payload Preview</span>
+              <div className="w-10" />
+            </div>
+            <div className="flex-1 flex items-center justify-center p-4 bg-slate-950">
+              {previewFile?.type.startsWith('video') ? (
+                <video src={previewUrl} controls className="max-w-full max-h-[65vh] rounded-2xl shadow-2xl" />
+              ) : (
+                <img src={previewUrl} className="max-w-full max-h-[65vh] rounded-2xl object-contain shadow-2xl" alt="Preview" />
+              )}
+            </div>
+            <div className="p-6 bg-slate-900 border-t border-white/5">
+              <div className="max-w-4xl mx-auto flex items-center gap-4">
+                <input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Add transaction caption text description..." className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-white text-sm outline-none focus:border-white/20 transition-all" />
+                <button onClick={handleFinalSend} className="w-14 h-14 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center shrink-0 shadow-lg"><BsSend size={20} className="text-white" /></button>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+};
+
+export default AgentDashboard;
