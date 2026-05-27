@@ -409,24 +409,30 @@ useEffect(() => {
 }, [messages, isFetchingOlder]);
 
 useEffect(() => {
+  if (!socket) return;
+
   const handleNewMessage = (message) => {
     setMessages((prev) => {
       const index = prev.findIndex(m => 
         (m.tempId && m.tempId === message.tempId) || m._id === message._id
-      );
-      
+      );      
       if (index !== -1) {
         const updated = [...prev];
-        updated[index] = message; // Overwrite with server-confirmed message
+        updated[index] = { ...message, isTemp: false }; 
         return updated;
       }
+            if (prev.find(m => m._id === message._id)) return prev;
+      
       return [...prev, message];
     });
+    if (message.senderModel === 'Agent' && notificationSound.current) {
+        notificationSound.current.play().catch(() => {});
+    }
   };
 
   socket.on("new-message", handleNewMessage);
   return () => socket.off("new-message", handleNewMessage);
-}, []);
+}, [socket]);
 
   useEffect(() => {
     const setupNotifications = async () => {
@@ -495,99 +501,65 @@ useEffect(() => {
     const interval = setInterval(fetchUserSession, 30000); 
     return () => clearInterval(interval);
   }, [navigate]);
-
+// 1. INITIAL HYDRATION EFFECT
   useEffect(() => {
     const token = localStorage.getItem('userToken');
     const targetAgentId = agent?._id || agent?.id;
     const API_BASE_URL = import.meta.env.VITE_API_URL;
+    
     if (!token || !targetAgentId) return;
-    let isFirstLoad = !isInitialLoadComplete;
+
     const fetchMessages = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/api/messages/${targetAgentId}?limit=50`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
+
         if (response.ok && data.success) {
-          const incomingMessages = data.messages;
-          const lastMsg = incomingMessages[incomingMessages.length - 1];
-          if (
-            lastMsg && 
-            lastMsg.senderModel === 'Agent' && 
-            lastMsg.status !== 'seen' && 
-            lastMsg._id !== lastNotifiedId.current
-          ) {
-            lastNotifiedId.current = lastMsg._id;
-            if (notificationSound.current) {
-              notificationSound.current.currentTime = 0;
-              notificationSound.current.play().catch(() => console.log("Audio blocked by browser"));
-            }
-            if (Notification.permission === "granted") {
-              new Notification(`Agent ${agent.firstName || 'ZingConnect'}`, {
-                body: lastMsg.text || "Sent a file",
-                icon: '/logo-s.png',
-                tag: 'zing-msg'
-              });
-            }
-            fetch(`${API_BASE_URL}/api/messages/mark-read/${targetAgentId}`, {
-              method: 'PATCH',
-              headers: { 'Authorization': `Bearer ${token}` }
-            }).catch(err => console.error("Mark read failed:", err));
-          }
+          // Merge incoming messages with any existing "pending/sending" messages
           setMessages(prev => {
-            const inFlight = prev.filter(m => m.status === 'sending' || m.status === 'failed' || m.isTemp);
-            const historicalLocal = prev.filter(m => m._id && !incomingMessages.some(incoming => incoming._id === m._id));
-            const serverMessageIds = new Set(incomingMessages.map(msg => msg._id));
-            const uniqueInFlight = inFlight.filter(m => 
-              !serverMessageIds.has(m._id) && !serverMessageIds.has(m.tempId)
-            );
-            return [...historicalLocal, ...incomingMessages, ...uniqueInFlight];
+            const serverIds = new Set(data.messages.map(m => m._id));
+            const inFlight = prev.filter(m => m.isTemp || m.status === 'sending' || m.status === 'failed');
+            // Keep in-flight messages that haven't been confirmed by server yet
+            const uniqueInFlight = inFlight.filter(m => !serverIds.has(m._id) && !serverIds.has(m.tempId));
+            return [...data.messages, ...uniqueInFlight];
           });
-          if (isFirstLoad) {
+
+          // Handle initial scroll
+          if (!isInitialLoadComplete) {
             setTimeout(() => {
-              if (chatContainerRef.current) {
-                chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-              }
+              chatContainerRef.current?.scrollTo({ top: chatContainerRef.current.scrollHeight });
               setIsInitialLoadComplete(true);
-            }, 120);
-          } else {
-            const container = chatContainerRef.current;
-            if (container) {
-              if (isAdjustingScrollRef.current) return;
-              const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
-              
-              if (isNearBottom) {
-                setTimeout(() => {
-                  if (!isAdjustingScrollRef.current) {
-                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-                  }
-                }, 50);
-              }
-            }
+            }, 150);
           }
         }
       } catch (err) {
-        console.error("ZingConnect Sync Jitter:", err);
+        console.error("ZingConnect Initial Load Error:", err);
       } finally {
-        if (isFirstLoad) setLoading(false);
+        setLoading(false);
       }
     };
-    fetchMessages();
-    const interval = setInterval(fetchMessages, 5000); 
-    return () => clearInterval(interval);
-  }, [agent?._id, agent?.id, isInitialLoadComplete]);
 
+    fetchMessages();
+  }, [agent?._id, agent?.id]);
+
+  // 2. FETCH OLDER MESSAGES (Pagination)
   const fetchOlderMessages = async () => {
-    if (isFetchingOlder || !hasMore || !agent?._id || (isAdjustingScrollRef && isAdjustingScrollRef.current)) return;
+    if (isFetchingOlder || !hasMore || !agent?._id || isAdjustingScrollRef.current) return;
+    
     const token = localStorage.getItem('userToken');
     const targetAgentId = agent._id || agent.id;
     const API_BASE_URL = import.meta.env.VITE_API_URL;
-    const oldestMessage = messages.find(m => m._id && !m.isTemp && m.status !== 'sending');
+    const oldestMessage = messages.find(m => m._id && !m.isTemp);
+    
     if (!oldestMessage) return;
+
     setIsFetchingOlder(true);
-    const container = chatContainerRef ? chatContainerRef.current : null;
-    const previousScrollHeight = container ? container.scrollHeight : 0;
-    const previousScrollTop = container ? container.scrollTop : 0;
+    isAdjustingScrollRef.current = true;
+    const container = chatContainerRef.current;
+    const prevScrollHeight = container?.scrollHeight || 0;
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/messages/${targetAgentId}?beforeId=${oldestMessage._id}&limit=30`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -595,45 +567,27 @@ useEffect(() => {
       const data = await response.json();
       
       if (response.ok && data.success) {
-        if (data.messages.length < 30) {
-          setHasMore(false);
-        }
+        if (data.messages.length < 30) setHasMore(false);
+        
         if (data.messages.length > 0) {
-          if (isAdjustingScrollRef) isAdjustingScrollRef.current = true;
-          
           setMessages(prev => {
-            const currentIds = new Set(prev.map(m => m._id));
-            const uniqueHistorical = data.messages.filter(m => !currentIds.has(m._id));
+            const existingIds = new Set(prev.map(m => m._id));
+            const uniqueHistorical = data.messages.filter(m => !existingIds.has(m._id));
             return [...uniqueHistorical, ...prev];
           });
           requestAnimationFrame(() => {
-            if (chatContainerRef && chatContainerRef.current) {
-              const freshHeight = chatContainerRef.current.scrollHeight;
-              const delta = freshHeight - previousScrollHeight;
-              chatContainerRef.current.scrollTop = previousScrollTop + delta;
+            if (container) {
+              const newHeight = container.scrollHeight;
+              container.scrollTop = newHeight - prevScrollHeight;
             }
-            setTimeout(() => {
-              if (chatContainerRef && chatContainerRef.current) {
-                const finalHeight = chatContainerRef.current.scrollHeight;
-                const finalDelta = finalHeight - previousScrollHeight;
-                chatContainerRef.current.scrollTop = previousScrollTop + finalDelta;
-              }
-              if (isAdjustingScrollRef && typeof isAdjustingScrollRef.current !== 'undefined') {
-                isAdjustingScrollRef.current = false;
-              }
-            }, 35);
           });
-        } else {
-          if (isAdjustingScrollRef && typeof isAdjustingScrollRef.current !== 'undefined') isAdjustingScrollRef.current = false;
         }
-      } else {
-        if (isAdjustingScrollRef && typeof isAdjustingScrollRef.current !== 'undefined') isAdjustingScrollRef.current = false;
       }
     } catch (err) {
-      console.error("Failed to load older historical slices:", err);
-      if (isAdjustingScrollRef && typeof isAdjustingScrollRef.current !== 'undefined') isAdjustingScrollRef.current = false;
+      console.error("Failed to load history:", err);
     } finally {
       setIsFetchingOlder(false);
+      isAdjustingScrollRef.current = false;
     }
   };
 
