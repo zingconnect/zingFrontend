@@ -158,6 +158,14 @@ const ChatMessageVideo = React.memo(({ url, onOpen }) => {
   );
 }, (prev, next) => prev.url === next.url);
 
+const handleOpenImage = useCallback((url) => {
+  setFullscreenImage(url);
+}, []); // Empty dependency array means this function reference never changes
+
+const handleOpenVideo = useCallback((url) => {
+  setFullscreenVideo(url);
+}, []);
+
 export const UserDashboard = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
@@ -1219,17 +1227,17 @@ const MessageBubble = ({ m, isMe, onReply, children }) => {
       {/* 1. Media Content - Using Memoized Components */}
       {(m.fileType === 'image' || m.fileType === 'video') && (
         <div className="relative mb-2 mt-1 group w-full">
-          {m.fileType === 'image' ? (
-            <ChatMessageImage 
-              url={m.fileUrl} 
-              onOpen={() => setFullscreenImage(m.fileUrl)} 
-            />
-          ) : (
-            <ChatMessageVideo 
-              url={m.fileUrl} 
-              onOpen={() => setFullscreenVideo(m.fileUrl)} 
-            />
-          )}
+         {m.fileType === 'image' ? (
+  <ChatMessageImage 
+    url={m.fileUrl} 
+    onOpen={() => handleOpenImage(m.fileUrl)} 
+  />
+) : (
+  <ChatMessageVideo 
+    url={m.fileUrl} 
+    onOpen={() => handleOpenVideo(m.fileUrl)} 
+  />
+)}
           
           {/* Download Button (Keep this here so it stays on top of the media) */}
           <button 
