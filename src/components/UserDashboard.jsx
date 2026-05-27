@@ -408,6 +408,23 @@ useEffect(() => {
   }
 }, [messages, isFetchingOlder]);
 
+useEffect(() => {
+  socket.on("new-message", (message) => {
+    setMessages((prev) => {
+      const index = prev.findIndex(m => m._id === message._id || m.tempId === message.tempId);
+      
+      if (index !== -1) {
+        const updated = [...prev];
+        updated[index] = message;
+        return updated;
+      }
+            return [...prev, message];
+    });
+  });
+
+  return () => socket.off("new-message");
+}, []);
+
   useEffect(() => {
     const setupNotifications = async () => {
       try {
@@ -845,56 +862,56 @@ const handleFileChange = (e) => {
   };
 
   const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !agent?._id) return;
-    
-    const textToSend = newMessage;
-    const tempId = Date.now().toString(); 
-    setNewMessage(''); 
-
-    const pendingMessage = {
-      _id: tempId,
-      tempId: tempId,
-      senderId: userData._id,
-      senderModel: 'User',
-      text: textToSend,
-      status: 'sending',
-      createdAt: new Date().toISOString(),
-      isTemp: true
-    };
-    setMessages(prev => [...prev, pendingMessage]);
-    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-
-    try {
-      const token = localStorage.getItem('userToken');
-      const response = await fetch('/api/messages/send', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          receiverId: agent._id,
-          text: textToSend,
-          fileType: 'text',
-          replyToId: replyingTo?._id 
-        })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setMessages(prev => prev.map(m => m._id === tempId ? data.message : m));
-        socket.emit("sendMessage", data.message); 
-        setReplyingTo(null);
-      } else {
-        throw new Error();
-      }
-    } catch (err) {
-      setMessages(prev => prev.map(m => 
-        m._id === tempId ? { ...m, status: 'failed' } : m
-      ));
-    }
+  e.preventDefault();
+    if (!socket.connected) {
+    console.error("Socket disconnected. Message not sent.");
+    return;
+  }
+  if (!newMessage.trim() || !agent?._id) return;
+  const textToSend = newMessage;
+  const tempId = Date.now().toString(); 
+  setNewMessage(''); 
+  const pendingMessage = {
+    _id: tempId,
+    tempId: tempId,
+    senderId: userData._id,
+    senderModel: 'User',
+    text: textToSend,
+    status: 'sending',
+    createdAt: new Date().toISOString(),
+    isTemp: true
   };
+  setMessages(prev => [...prev, pendingMessage]);
+  setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+  try {
+    const token = localStorage.getItem('userToken');
+    const response = await fetch('/api/messages/send', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        receiverId: agent._id,
+        text: textToSend,
+        fileType: 'text',
+        replyToId: replyingTo?._id 
+      })
+    });
+    const data = await response.json();
+    if (data.success) {
+      setMessages(prev => prev.map(m => m.tempId === tempId ? data.message : m));
+      setReplyingTo(null);
+    } else {
+      throw new Error("Failed to send");
+    }
+  } catch (err) {
+    // 4. Handle failure
+    setMessages(prev => prev.map(m => 
+      m.tempId === tempId ? { ...m, status: 'failed' } : m
+    ));
+  }
+};
 
   const handleResend = (msg) => {
     setMessages(prev => prev.filter(m => m._id !== msg._id));
