@@ -158,6 +158,41 @@ const ChatMessageVideo = React.memo(({ url, onOpen }) => {
   );
 }, (prev, next) => prev.url === next.url);
 
+const renderedMessages = useMemo(() => {
+  return messages.map((m, index) => {
+    const msgKey = m._id || m.tempId || `msg-node-${m.createdAt}-${index}`;
+    const isMe = m.senderModel === 'User' || m.senderId === userData?._id;
+    return (
+      <MessageBubble
+        key={msgKey}
+        m={m}
+        isMe={isMe}
+        onReply={(msg) => setReplyingTo(msg)}
+      >
+        {(m.fileType === 'image' || m.fileType === 'video') && (
+           <div className="relative mb-2 mt-1 group w-full">
+             {m.fileType === 'image' ? (
+               <ChatMessageImage url={m.fileUrl} onOpen={() => handleOpenImage(m.fileUrl)} />
+             ) : (
+               <ChatMessageVideo url={m.fileUrl} onOpen={() => handleOpenVideo(m.fileUrl)} />
+             )}
+             <button 
+                onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, m.fileType); }}
+                className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-20"
+             >
+               <BsDownload size={14} />
+             </button>
+           </div>
+        )}
+        {m.text && (
+          <p className="text-[12px] md:text-[14px] leading-relaxed pr-6 break-words whitespace-pre-wrap text-slate-900">
+            {m.text}
+          </p>
+        )}
+      </MessageBubble>
+    );
+  });
+}, [messages, userData, handleOpenImage, handleOpenVideo, handleDownload]); // Added handlers to deps
 
 export const UserDashboard = () => {
   const navigate = useNavigate();
@@ -882,21 +917,15 @@ function AudioTracks({ active }) {
 };
 const MessageBubble = React.memo(({ m, isMe, onReply, children }) => {
   const controls = useAnimation();
-
-  // Stabilize the bind function so it doesn't cause re-renders
-  const bind = useMemo(() => {
-    return () => ({
-      ...useDrag(({ active, movement: [x] }) => {
-        const xMovement = Math.min(Math.max(0, x), 80);
-        if (active) {
-          controls.set({ x: xMovement });
-        } else {
-          if (xMovement > 55) onReply(m);
-          controls.start({ x: 0, transition: { type: "spring", stiffness: 350, damping: 25 } });
-        }
-      }, { axis: 'x', filterTaps: true, pointer: { touch: true } })()
-    });
-  }, [controls, m, onReply]);
+  const bind = useDrag(({ active, movement: [x] }) => {
+      const xMovement = Math.min(Math.max(0, x), 80);
+      if (active) {
+        controls.set({ x: xMovement });
+      } else {
+        if (xMovement > 55) onReply(m);
+        controls.start({ x: 0, transition: { type: "spring", stiffness: 350, damping: 25 } });
+      }
+    }, { axis: 'x', filterTaps: true, pointer: { touch: true } });
 
   return (
     <div className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'} relative px-1 mb-1.5`}>
@@ -1175,7 +1204,6 @@ const MessageBubble = React.memo(({ m, isMe, onReply, children }) => {
 />
 </div>
         </header>
-
 <main 
   ref={chatContainerRef}
   onScroll={handleChatScroll}
@@ -1186,11 +1214,13 @@ const MessageBubble = React.memo(({ m, isMe, onReply, children }) => {
     WebkitOverflowScrolling: 'touch'  
   }}
 >
+  {/* Background Pattern */}
   <div 
     className="absolute inset-0 opacity-[0.05] pointer-events-none" 
     style={{ backgroundImage: "url('https://w0.peakpx.com/wallpaper/580/678/OH-wallpaper-whatsapp-dark-mode.jpg')" }} 
   />
 
+  {/* Fetching State Indicator */}
   {isFetchingOlder && (
     <div className="self-center z-20 my-2 px-3 py-1.5 bg-[#005c4b] text-white rounded-full text-[10px] font-bold tracking-wider flex items-center gap-2 shadow-md border border-emerald-500/20 animate-pulse">
       <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -1198,68 +1228,18 @@ const MessageBubble = React.memo(({ m, isMe, onReply, children }) => {
     </div>
   )}
 
+  {/* Security Notice */}
   <div className="self-center z-10 my-4 px-4 py-1.5 bg-[#fff9c2] rounded-lg shadow-sm border border-yellow-100 flex items-center gap-2 max-w-[90%]">
     <BsShieldLockFill size={10} className="text-gray-600" />
     <p className="text-[9px] md:text-[10px] text-gray-600 text-center font-medium leading-tight">
       Messages are end-to-end encrypted. No one outside of this chat can read them.
     </p>
   </div>
-{messages.map((m, index) => {
-  const msgKey = m._id || m.tempId || `msg-node-${m.createdAt}-${index}`;
-  
-  if (m.fileType === 'voice_call') {
-    return (
-      <CallStatusMessage 
-        key={msgKey}
-        status={m.status} 
-        time={new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-      />
-    );
-  }
 
-  const isMe = m.senderModel === 'User' || m.senderId === userData?._id;
-  
-  return (
-    <MessageBubble
-      key={msgKey}
-      m={m}
-      isMe={isMe}
-      onReply={(messageInstance) => setReplyingTo(messageInstance)}
-    >
-      {/* 1. Media Content - Using Memoized Components */}
-      {(m.fileType === 'image' || m.fileType === 'video') && (
-        <div className="relative mb-2 mt-1 group w-full">
-         {m.fileType === 'image' ? (
-  <ChatMessageImage 
-    url={m.fileUrl} 
-    onOpen={() => handleOpenImage(m.fileUrl)} 
-  />
-) : (
-  <ChatMessageVideo 
-    url={m.fileUrl} 
-    onOpen={() => handleOpenVideo(m.fileUrl)} 
-  />
-)}
-          
-          {/* Download Button (Keep this here so it stays on top of the media) */}
-          <button 
-            onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, m.fileType); }}
-            className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-20"
-          >
-            <BsDownload size={14} />
-          </button>
-        </div>
-      )}
+  {/* THE OPTIMIZED RENDERING BLOCK */}
+  {renderedMessages}
 
-      {/* 2. Text Content */}
-      {m.text && (
-        <p className={`text-[12px] md:text-[14px] leading-relaxed pr-6 break-words whitespace-pre-wrap text-slate-900 ${m.fileType === 'image' || m.fileType === 'video' ? 'mt-1 mb-1' : ''}`}>
-          {m.text}
-        </p>
-      )}
-    </MessageBubble>
-  );
-})}
+  {/* Scroll anchor */}
   <div ref={messagesEndRef} className="h-12 shrink-0 w-full clear-both" />
 </main>
 
