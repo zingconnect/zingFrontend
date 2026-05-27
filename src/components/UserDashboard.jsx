@@ -158,13 +158,6 @@ const ChatMessageVideo = React.memo(({ url, onOpen }) => {
   );
 }, (prev, next) => prev.url === next.url);
 
-const handleOpenImage = useCallback((url) => {
-  setFullscreenImage(url);
-}, []); // Empty dependency array means this function reference never changes
-
-const handleOpenVideo = useCallback((url) => {
-  setFullscreenVideo(url);
-}, []);
 
 export const UserDashboard = () => {
   const navigate = useNavigate();
@@ -204,6 +197,14 @@ const lastMessageIdRef = useRef(null);
   const [fullscreenVideo, setFullscreenVideo] = useState(null);
   const API_BASE_URL = import.meta.env.VITE_API_URL;
   const serverUrl = import.meta.env.VITE_LIVEKIT_URL;
+
+  const handleOpenImage = useCallback((url) => {
+  setFullscreenImage(url);
+}, []); // Empty dependency array means this function reference never changes
+
+const handleOpenVideo = useCallback((url) => {
+  setFullscreenVideo(url);
+}, []);
 
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', phone: '', dob: '', gender: '', city: '', state: '' 
