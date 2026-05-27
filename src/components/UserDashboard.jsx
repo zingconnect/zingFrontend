@@ -3,6 +3,18 @@ import { Track } from 'livekit-client';
 import { useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { UserCallContext } from '../context/UserCallContext'; 
 import { Buffer } from 'buffer'; // Keep this at the top
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { io } from 'socket.io-client';
+import { motion, useAnimation } from "framer-motion";
+import SimplePeer from 'simple-peer';
+import { useDrag } from "@use-gesture/react";
+import ReactPhoneInput from 'react-phone-input-2';
+import 'react-phone-input-2/lib/style.css';
+import { 
+  BsTelephoneFill, BsPlusLg, BsSendFill, BsCheckAll, BsChevronLeft, BsShieldLockFill, BsGearFill, BsArrowRight, BsCameraFill, BsMicFill,
+  BsVolumeUpFill, BsMicMuteFill, BsPaperclip, BsDownload, BsPlayFill, BsXLg, BsX, BsReplyFill 
+} from 'react-icons/bs';
 
 if (typeof window !== 'undefined') {
   window.global = window;
@@ -41,18 +53,7 @@ if (typeof window !== 'undefined') {
   }
 }
 
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { io } from 'socket.io-client';
-import { motion, useAnimation } from "framer-motion";
-import SimplePeer from 'simple-peer';
-import { useDrag } from "@use-gesture/react";
-import ReactPhoneInput from 'react-phone-input-2';
-import 'react-phone-input-2/lib/style.css';
-import { 
-  BsTelephoneFill, BsPlusLg, BsSendFill, BsCheckAll, BsChevronLeft, BsShieldLockFill, BsGearFill, BsArrowRight, BsCameraFill, BsMicFill,
-  BsVolumeUpFill, BsMicMuteFill, BsPaperclip, BsDownload, BsPlayFill, BsXLg, BsX, BsReplyFill 
-} from 'react-icons/bs';
+
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -128,6 +129,34 @@ const CallStatusMessage = ({ status, time }) => {
     </div>
   );
 };
+const ChatMessageImage = React.memo(({ url, onOpen }) => {
+  return (
+    <img 
+      src={url} 
+      loading="lazy"
+      alt="attachment" 
+      onClick={onOpen} 
+      className="rounded-lg bg-gray-100 object-cover w-full max-w-[260px] max-h-[300px] md:max-w-[380px] md:max-h-[450px] cursor-pointer transition-opacity hover:opacity-95" 
+    />
+  );
+}, (prev, next) => prev.url === next.url);
+
+const ChatMessageVideo = React.memo(({ url, onOpen }) => {
+  return (
+    <div className="relative cursor-pointer" onClick={onOpen}>
+      <video 
+        src={url} 
+        preload="metadata"
+        className="rounded-lg w-full max-w-[260px] md:max-w-[380px] max-h-[450px] bg-black shadow-inner"
+      />
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="bg-black/40 p-3 rounded-full text-white backdrop-blur-sm">
+          <BsPlayFill size={30} />
+        </div>
+      </div>
+    </div>
+  );
+}, (prev, next) => prev.url === next.url);
 
 export const UserDashboard = () => {
   const navigate = useNavigate();
@@ -1165,9 +1194,9 @@ const MessageBubble = ({ m, isMe, onReply, children }) => {
       Messages are end-to-end encrypted. No one outside of this chat can read them.
     </p>
   </div>
-
 {messages.map((m, index) => {
   const msgKey = m._id || m.tempId || `msg-node-${m.createdAt}-${index}`;
+  
   if (m.fileType === 'voice_call') {
     return (
       <CallStatusMessage 
@@ -1177,6 +1206,7 @@ const MessageBubble = ({ m, isMe, onReply, children }) => {
       />
     );
   }
+
   const isMe = m.senderModel === 'User' || m.senderId === userData?._id;
   
   return (
@@ -1186,51 +1216,28 @@ const MessageBubble = ({ m, isMe, onReply, children }) => {
       isMe={isMe}
       onReply={(messageInstance) => setReplyingTo(messageInstance)}
     >
-      {/* 1. Media Content */}
+      {/* 1. Media Content - Using Memoized Components */}
       {(m.fileType === 'image' || m.fileType === 'video') && (
         <div className="relative mb-2 mt-1 group w-full">
           {m.fileType === 'image' ? (
-            <>
-              <img 
-                src={m.fileUrl} 
-                alt="attachment" 
-                onClick={() => setFullscreenImage(m.fileUrl)} 
-                className="rounded-lg bg-gray-100 object-cover w-full max-w-[260px] max-h-[300px] md:max-w-[380px] md:max-h-[450px] cursor-pointer transition-opacity hover:opacity-95" 
-                onError={(e) => {
-                  const target = e.currentTarget;
-                  target.onerror = null; 
-                  target.src = 'https://via.placeholder.com/150?text=Image+Unavailable';
-                }}
-              />
-              <button 
-                onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, 'image'); }}
-                className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-              >
-                <BsDownload size={14} />
-              </button>
-            </>
+            <ChatMessageImage 
+              url={m.fileUrl} 
+              onOpen={() => setFullscreenImage(m.fileUrl)} 
+            />
           ) : (
-            <div className="relative">
-              <video 
-                key={`video-${msgKey}`}
-                src={m.fileUrl}
-                preload="metadata"
-                className="rounded-lg w-full max-w-[260px] md:max-w-[380px] max-h-[450px] bg-black shadow-inner cursor-pointer"
-                onClick={() => setFullscreenVideo(m.fileUrl)}
-              />
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="bg-black/40 p-3 rounded-full text-white backdrop-blur-sm">
-                  <BsPlayFill size={30} />
-                </div>
-              </div>
-              <button 
-                onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, 'video'); }}
-                className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-20"
-              >
-                <BsDownload size={14} />
-              </button>
-            </div>
+            <ChatMessageVideo 
+              url={m.fileUrl} 
+              onOpen={() => setFullscreenVideo(m.fileUrl)} 
+            />
           )}
+          
+          {/* Download Button (Keep this here so it stays on top of the media) */}
+          <button 
+            onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, m.fileType); }}
+            className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-20"
+          >
+            <BsDownload size={14} />
+          </button>
         </div>
       )}
 
@@ -1240,8 +1247,6 @@ const MessageBubble = ({ m, isMe, onReply, children }) => {
           {m.text}
         </p>
       )}
-      
-      {/* Footer metadata is now handled internally by MessageBubble */}
     </MessageBubble>
   );
 })}
