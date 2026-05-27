@@ -230,44 +230,47 @@ const handleOpenImage = useCallback((url) => setFullscreenImage(url), []);
   const notificationSound = useRef(new Audio('/sounds/notification.mp3'));
   const ringtoneAudioRef = useRef(new Audio('/sounds/ringtone.mp3')); 
   const totalMessagesCountRef = useRef(messages.length);
+const safeMessages = Array.isArray(messages) ? messages : [];
 
- const renderedMessages = useMemo(() => {
-    if (!messages || !Array.isArray(messages)) return null;
-    return messages.map((m, index) => {
-      const userId = userData?._id;
-      const isMe = m.senderModel === 'User' || (userId && m.senderId === userId);      
-      const msgKey = m._id || m.tempId || `msg-node-${m.createdAt}-${index}`;
-      return (
-        <MessageBubble
-          key={msgKey}
-          m={m}
-          isMe={isMe}
-          onReply={(msg) => setReplyingTo(msg)}
-        >
-          {(m.fileType === 'image' || m.fileType === 'video') && (
-             <div className="relative mb-2 mt-1 group w-full">
-               {m.fileType === 'image' ? (
-                 <ChatMessageImage url={m.fileUrl} onOpen={() => handleOpenImage(m.fileUrl)} />
-               ) : (
-                 <ChatMessageVideo url={m.fileUrl} onOpen={() => handleOpenVideo(m.fileUrl)} />
-               )}
-               <button 
-                 onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, m.fileType); }}
-                 className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-20"
-               >
-                 <BsDownload size={14} />
-               </button>
-             </div>
-          )}
-          {m.text && (
-            <p className="text-[12px] md:text-[14px] leading-relaxed pr-6 break-words whitespace-pre-wrap text-slate-900">
-              {m.text}
-            </p>
-          )}
-        </MessageBubble>
-      );
-    });
-  }, [messages, userData?._id, handleOpenImage, handleOpenVideo, handleDownload]);
+const renderedMessages = useMemo(() => {
+  // 2. Use the stable reference inside the memo
+  return safeMessages.map((m, index) => {
+    const userId = userData?._id;
+    const isMe = m.senderModel === 'User' || (userId && m.senderId === userId);
+    const msgKey = m._id || m.tempId || `msg-node-${m.createdAt}-${index}`;
+    
+    return (
+      <MessageBubble
+        key={msgKey}
+        m={m}
+        isMe={isMe}
+        onReply={(msg) => setReplyingTo(msg)}
+      >
+        {(m.fileType === 'image' || m.fileType === 'video') && (
+           <div className="relative mb-2 mt-1 group w-full">
+             {m.fileType === 'image' ? (
+               <ChatMessageImage url={m.fileUrl} onOpen={() => handleOpenImage(m.fileUrl)} />
+             ) : (
+               <ChatMessageVideo url={m.fileUrl} onOpen={() => handleOpenVideo(m.fileUrl)} />
+             )}
+             <button 
+               onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, m.fileType); }}
+               className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-20"
+             >
+               <BsDownload size={14} />
+             </button>
+           </div>
+        )}
+        {m.text && (
+          <p className="text-[12px] md:text-[14px] leading-relaxed pr-6 break-words whitespace-pre-wrap text-slate-900">
+            {m.text}
+          </p>
+        )}
+      </MessageBubble>
+    );
+  });
+// 3. Update dependency array to use the stable reference
+}, [safeMessages, userData?._id, handleOpenImage, handleOpenVideo, handleDownload]);
   const getStatusInfo = (agent) => {
     if (!agent) return { isOnline: false, label: "Connecting..." };
     if (agent.status === 'online') return { isOnline: true, label: "Online" };
