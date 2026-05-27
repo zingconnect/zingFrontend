@@ -409,20 +409,23 @@ useEffect(() => {
 }, [messages, isFetchingOlder]);
 
 useEffect(() => {
-  socket.on("new-message", (message) => {
+  const handleNewMessage = (message) => {
     setMessages((prev) => {
-      const index = prev.findIndex(m => m._id === message._id || m.tempId === message.tempId);
+      const index = prev.findIndex(m => 
+        (m.tempId && m.tempId === message.tempId) || m._id === message._id
+      );
       
       if (index !== -1) {
         const updated = [...prev];
-        updated[index] = message;
+        updated[index] = message; // Overwrite with server-confirmed message
         return updated;
       }
-            return [...prev, message];
+      return [...prev, message];
     });
-  });
+  };
 
-  return () => socket.off("new-message");
+  socket.on("new-message", handleNewMessage);
+  return () => socket.off("new-message", handleNewMessage);
 }, []);
 
   useEffect(() => {
@@ -860,19 +863,17 @@ const handleFileChange = (e) => {
 
     pollingRef.current = pollInterval;
   };
-
-  const handleSendMessage = async (e) => {
+const handleSendMessage = async (e) => {
   e.preventDefault();
-    if (!socket.connected) {
-    console.error("Socket disconnected. Message not sent.");
-    return;
-  }
+  if (!socket.connected) return;
   if (!newMessage.trim() || !agent?._id) return;
+  
   const textToSend = newMessage;
   const tempId = Date.now().toString(); 
   setNewMessage(''); 
+
   const pendingMessage = {
-    _id: tempId,
+    _id: tempId, // This will be updated by the socket listener
     tempId: tempId,
     senderId: userData._id,
     senderModel: 'User',
@@ -881,16 +882,14 @@ const handleFileChange = (e) => {
     createdAt: new Date().toISOString(),
     isTemp: true
   };
+  
   setMessages(prev => [...prev, pendingMessage]);
-  setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+
   try {
     const token = localStorage.getItem('userToken');
     const response = await fetch('/api/messages/send', {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({
         receiverId: agent._id,
         text: textToSend,
@@ -898,21 +897,19 @@ const handleFileChange = (e) => {
         replyToId: replyingTo?._id 
       })
     });
+
     const data = await response.json();
-    if (data.success) {
-      setMessages(prev => prev.map(m => m.tempId === tempId ? data.message : m));
-      setReplyingTo(null);
-    } else {
-      throw new Error("Failed to send");
-    }
+    if (!data.success) throw new Error("Failed");
+    
+    // REMOVED: setMessages(...) here. 
+    // We let the socket listener handle the update!
+    setReplyingTo(null);
   } catch (err) {
-    // 4. Handle failure
     setMessages(prev => prev.map(m => 
       m.tempId === tempId ? { ...m, status: 'failed' } : m
     ));
   }
 };
-
   const handleResend = (msg) => {
     setMessages(prev => prev.filter(m => m._id !== msg._id));
     if (msg.fileType === 'image' || msg.fileType === 'video') {
