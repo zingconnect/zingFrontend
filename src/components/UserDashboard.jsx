@@ -880,22 +880,26 @@ function AudioTracks({ active }) {
 
   return null; // This component doesn't need to render anything visual
 };
-
-const MessageBubble = ({ m, isMe, onReply, children }) => {
+const MessageBubble = React.memo(({ m, isMe, onReply, children }) => {
   const controls = useAnimation();
 
-  const bind = useDrag(({ active, movement: [x] }) => {
-    const xMovement = Math.min(Math.max(0, x), 80); 
-    if (active) controls.set({ x: xMovement });
-    else {
-      if (xMovement > 55) onReply(m);
-      controls.start({ x: 0, transition: { type: "spring", stiffness: 350, damping: 25 } });
-    }
-  }, { axis: 'x', filterTaps: true, pointer: { touch: true } });
+  // Stabilize the bind function so it doesn't cause re-renders
+  const bind = useMemo(() => {
+    return () => ({
+      ...useDrag(({ active, movement: [x] }) => {
+        const xMovement = Math.min(Math.max(0, x), 80);
+        if (active) {
+          controls.set({ x: xMovement });
+        } else {
+          if (xMovement > 55) onReply(m);
+          controls.start({ x: 0, transition: { type: "spring", stiffness: 350, damping: 25 } });
+        }
+      }, { axis: 'x', filterTaps: true, pointer: { touch: true } })()
+    });
+  }, [controls, m, onReply]);
 
   return (
     <div className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'} relative px-1 mb-1.5`}>
-      {/* Reply Icon Background Layer */}
       <div className={`absolute ${isMe ? 'right-2' : 'left-2'} inset-y-0 flex items-center z-0`}>
         <BsReplyFill className="text-slate-400" size={18} />
       </div>
@@ -908,8 +912,6 @@ const MessageBubble = ({ m, isMe, onReply, children }) => {
         }`}
       >
         {children}
-
-        {/* --- FOOTER (This must be here to render the time and status) --- */}
         <div className="flex items-center justify-end gap-1 mt-1 opacity-70">
           <span className="text-[9px] font-bold uppercase">
             {m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "00:00"}
@@ -924,11 +926,10 @@ const MessageBubble = ({ m, isMe, onReply, children }) => {
             </div>
           )}
         </div>
-        {/* --- END FOOTER --- */}
       </motion.div>
     </div>
   );
-};
+}, (prev, next) => prev.m._id === next.m._id && prev.m.status === next.m.status);
 
   if (loading) return (
     <div className="h-screen flex items-center justify-center bg-[#f0f2f5] text-[10px] font-black uppercase tracking-[0.2em] text-blue-900">
