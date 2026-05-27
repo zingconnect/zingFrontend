@@ -173,6 +173,25 @@ export const UserDashboard = () => {
   const previousScrollTopRef = useRef(null);
   const lastMessageCountRef = useRef(0);
 const lastMessageIdRef = useRef(null);
+const handleOpenImage = useCallback((url) => setFullscreenImage(url), []);
+  const handleOpenVideo = useCallback((url) => setFullscreenVideo(url), []);
+
+  const handleDownload = useCallback(async (url, type) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `zing-${type}-${Date.now()}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error("Download failed:", err);
+    }
+  }, []);
 
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingOlder, setIsFetchingOlder] = useState(false);
@@ -197,19 +216,9 @@ const lastMessageIdRef = useRef(null);
   const API_BASE_URL = import.meta.env.VITE_API_URL;
   const serverUrl = import.meta.env.VITE_LIVEKIT_URL;
 
-  const handleOpenImage = useCallback((url) => {
-  setFullscreenImage(url);
-}, []); // Empty dependency array means this function reference never changes
-
-const handleOpenVideo = useCallback((url) => {
-  setFullscreenVideo(url);
-}, []);
-
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', phone: '', dob: '', gender: '', city: '', state: '' 
   });
-
-  // Consuming signaling states and event loops straight out of UserCallContext
   const { 
     callStatus, setCallStatus, activeCall, setActiveCall, activeCaller, setActiveCaller, isMuted, setIsMuted, isSpeakerOn, setIsSpeakerOn,
     callTime, setCallTime, peerConnected, setPeerConnected, isEnding, setIsEnding, liveKitToken, setLiveKitToken, showFullScreenCall, setShowFullScreenCall,
@@ -221,6 +230,42 @@ const handleOpenVideo = useCallback((url) => {
   const notificationSound = useRef(new Audio('/sounds/notification.mp3'));
   const ringtoneAudioRef = useRef(new Audio('/sounds/ringtone.mp3')); 
   const totalMessagesCountRef = useRef(messages.length);
+
+  const renderedMessages = useMemo(() => {
+  return messages.map((m, index) => {
+    const msgKey = m._id || m.tempId || `msg-node-${m.createdAt}-${index}`;
+    const isMe = m.senderModel === 'User' || m.senderId === userData?._id;
+    return (
+      <MessageBubble
+        key={msgKey}
+        m={m}
+        isMe={isMe}
+        onReply={(msg) => setReplyingTo(msg)}
+      >
+        {(m.fileType === 'image' || m.fileType === 'video') && (
+           <div className="relative mb-2 mt-1 group w-full">
+             {m.fileType === 'image' ? (
+               <ChatMessageImage url={m.fileUrl} onOpen={() => handleOpenImage(m.fileUrl)} />
+             ) : (
+               <ChatMessageVideo url={m.fileUrl} onOpen={() => handleOpenVideo(m.fileUrl)} />
+             )}
+             <button 
+                onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, m.fileType); }}
+                className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-20"
+             >
+               <BsDownload size={14} />
+             </button>
+           </div>
+        )}
+        {m.text && (
+          <p className="text-[12px] md:text-[14px] leading-relaxed pr-6 break-words whitespace-pre-wrap text-slate-900">
+            {m.text}
+          </p>
+        )}
+      </MessageBubble>
+    );
+  });
+}, [messages, userData, handleOpenImage, handleOpenVideo, handleDownload]); 
 
   const getStatusInfo = (agent) => {
     if (!agent) return { isOnline: false, label: "Connecting..." };
@@ -753,23 +798,6 @@ const handleFileChange = (e) => {
     }
   };
 
-  const handleDownload = async (url, type) => {
-    try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = `zing-${type}-${Date.now()}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
-    } catch (err) {
-      console.error("Download failed:", err);
-    }
-  };
-
   const startStatusPolling = (roomName) => {
     const token = localStorage.getItem('userToken');
     const startTime = Date.now();
@@ -880,41 +908,6 @@ function AudioTracks({ active }) {
   return null; // This component doesn't need to render anything visual
 };
 
-const renderedMessages = useMemo(() => {
-  return messages.map((m, index) => {
-    const msgKey = m._id || m.tempId || `msg-node-${m.createdAt}-${index}`;
-    const isMe = m.senderModel === 'User' || m.senderId === userData?._id;
-    return (
-      <MessageBubble
-        key={msgKey}
-        m={m}
-        isMe={isMe}
-        onReply={(msg) => setReplyingTo(msg)}
-      >
-        {(m.fileType === 'image' || m.fileType === 'video') && (
-           <div className="relative mb-2 mt-1 group w-full">
-             {m.fileType === 'image' ? (
-               <ChatMessageImage url={m.fileUrl} onOpen={() => handleOpenImage(m.fileUrl)} />
-             ) : (
-               <ChatMessageVideo url={m.fileUrl} onOpen={() => handleOpenVideo(m.fileUrl)} />
-             )}
-             <button 
-                onClick={(e) => { e.stopPropagation(); handleDownload(m.fileUrl, m.fileType); }}
-                className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-20"
-             >
-               <BsDownload size={14} />
-             </button>
-           </div>
-        )}
-        {m.text && (
-          <p className="text-[12px] md:text-[14px] leading-relaxed pr-6 break-words whitespace-pre-wrap text-slate-900">
-            {m.text}
-          </p>
-        )}
-      </MessageBubble>
-    );
-  });
-}, [messages, userData, handleOpenImage, handleOpenVideo, handleDownload]); // Added handlers to deps
 const MessageBubble = React.memo(({ m, isMe, onReply, children }) => {
   const controls = useAnimation();
   const bind = useDrag(({ active, movement: [x] }) => {
@@ -1204,6 +1197,7 @@ const MessageBubble = React.memo(({ m, isMe, onReply, children }) => {
 />
 </div>
         </header>
+        
 <main 
   ref={chatContainerRef}
   onScroll={handleChatScroll}
