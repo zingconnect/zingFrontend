@@ -230,15 +230,18 @@ const handleOpenImage = useCallback((url) => setFullscreenImage(url), []);
   const notificationSound = useRef(new Audio('/sounds/notification.mp3'));
   const ringtoneAudioRef = useRef(new Audio('/sounds/ringtone.mp3')); 
   const totalMessagesCountRef = useRef(messages.length);
-const safeMessages = Array.isArray(messages) ? messages : [];
+// Add this new state to hold the pre-rendered bubble components
+const [messageBubbles, setMessageBubbles] = useState([]);
 
-const renderedMessages = useMemo(() => {
-  // 2. Use the stable reference inside the memo
-  return safeMessages.map((m, index) => {
+// This effect runs safely after the component mounts
+useEffect(() => {
+  if (!messages || !Array.isArray(messages)) return;
+
+  const bubbles = messages.map((m, index) => {
     const userId = userData?._id;
     const isMe = m.senderModel === 'User' || (userId && m.senderId === userId);
     const msgKey = m._id || m.tempId || `msg-node-${m.createdAt}-${index}`;
-    
+
     return (
       <MessageBubble
         key={msgKey}
@@ -269,8 +272,11 @@ const renderedMessages = useMemo(() => {
       </MessageBubble>
     );
   });
-// 3. Update dependency array to use the stable reference
-}, [safeMessages, userData?._id, handleOpenImage, handleOpenVideo, handleDownload]);
+
+  setMessageBubbles(bubbles);
+  // Dependencies are safe here
+}, [messages, userData?._id, handleOpenImage, handleOpenVideo, handleDownload]);
+
   const getStatusInfo = (agent) => {
     if (!agent) return { isOnline: false, label: "Connecting..." };
     if (agent.status === 'online') return { isOnline: true, label: "Online" };
@@ -1201,14 +1207,13 @@ const MessageBubble = React.memo(({ m, isMe, onReply, children }) => {
 />
 </div>
         </header>
-
 <main 
   ref={chatContainerRef}
   onScroll={handleChatScroll}
   className="flex-1 relative overflow-y-auto bg-[#efeae2] p-4 md:px-[15%] lg:px-[25%] flex flex-col space-y-2 scrollbar-hide"
   style={{
-    scrollAnchor: 'none',             
-    overscrollBehaviorY: 'contain',   
+    scrollAnchor: 'none',            
+    overscrollBehaviorY: 'contain',  
     WebkitOverflowScrolling: 'touch'  
   }}
 >
@@ -1234,8 +1239,8 @@ const MessageBubble = React.memo(({ m, isMe, onReply, children }) => {
     </p>
   </div>
 
-  {/* THE OPTIMIZED RENDERING BLOCK */}
-  {renderedMessages}
+  {/* Render the computed message bubbles */}
+  {messageBubbles}
 
   {/* Scroll anchor */}
   <div ref={messagesEndRef} className="h-12 shrink-0 w-full clear-both" />
