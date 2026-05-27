@@ -817,17 +817,17 @@ const handleFileChange = (e) => {
 
     pollingRef.current = pollInterval;
   };
-const handleSendMessage = async (e) => {
-  e.preventDefault();
-  if (!socket.connected) return;
-  if (!newMessage.trim() || !agent?._id) return;
+  const handleSendMessage = async (e) => {
+  if (e) e.preventDefault();
+  if (!socket.connected || !newMessage.trim() || !agent?._id) return;
   
   const textToSend = newMessage;
   const tempId = Date.now().toString(); 
   setNewMessage(''); 
+  setReplyingTo(null);
 
   const pendingMessage = {
-    _id: tempId, // This will be updated by the socket listener
+    _id: tempId,
     tempId: tempId,
     senderId: userData._id,
     senderModel: 'User',
@@ -839,10 +839,15 @@ const handleSendMessage = async (e) => {
   
   setMessages(prev => [...prev, pendingMessage]);
 
+  // Use AbortController to kill the request after 10 seconds
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); 
+
   try {
     const token = localStorage.getItem('userToken');
-    const response = await fetch('/api/messages/send', {
+    const response = await fetch(`${import.meta.env.VITE_API_URL}/api/messages/send`, {
       method: 'POST',
+      signal: controller.signal,
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({
         receiverId: agent._id,
@@ -852,18 +857,29 @@ const handleSendMessage = async (e) => {
       })
     });
 
+    clearTimeout(timeoutId);
+
+    if (!response.ok) throw new Error("Server error");
     const data = await response.json();
     if (!data.success) throw new Error("Failed");
     
-    // REMOVED: setMessages(...) here. 
-    // We let the socket listener handle the update!
-    setReplyingTo(null);
+    // Success! Socket listener will automatically replace pendingMessage.
   } catch (err) {
+    clearTimeout(timeoutId);
+    console.error("Message send error:", err);
+    
     setMessages(prev => prev.map(m => 
       m.tempId === tempId ? { ...m, status: 'failed' } : m
     ));
   }
 };
+
+const retrySendMessage = (failedMsg) => {
+  setMessages(prev => prev.filter(m => m.tempId !== failedMsg.tempId));
+    setNewMessage(failedMsg.text);
+  handleSendMessage(); 
+};
+
   const handleResend = (msg) => {
     setMessages(prev => prev.filter(m => m._id !== msg._id));
     if (msg.fileType === 'image' || msg.fileType === 'video') {
